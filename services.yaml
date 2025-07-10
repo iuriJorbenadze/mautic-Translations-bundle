@@ -1,0 +1,4 @@
+services:
+  MauticPlugin\AiTranslateBundle\Service\DeeplClientService:
+    arguments:
+      $integrationHelper: '@mautic.helper.integration'

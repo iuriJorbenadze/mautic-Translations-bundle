@@ -1,0 +1,4 @@
+ai_translate_test_api:
+  path: /s/plugin/ai-translate/test-api
+  controller: MauticPlugin\AiTranslateBundle\Controller\ApiTestController::testApiAction
+  methods: [POST]
