@@ -9,10 +9,10 @@ return function (ContainerConfigurator $configurator): void {
     $services = $configurator->services()
         ->defaults()->autowire()->autoconfigure()->public();
 
-    // Autoload everything under the bundle (except default excludes)
     $services->load('MauticPlugin\\AiTranslateBundle\\', '../')
         ->exclude('../{'.implode(',', MauticCoreExtension::DEFAULT_EXCLUDES).'}');
 
     $services->set(MauticPlugin\AiTranslateBundle\Service\DeeplClientService::class)
-        ->arg('$integrationHelper', service('mautic.helper.integration'));
+        ->arg('$integrationHelper', service('mautic.helper.integration'))
+        ->arg('$logger', service('monolog.logger.mautic')); // << inject logger
 };

@@ -14,17 +14,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EmailActionController extends FormController
 {
-    /**
-     * Minimal probe: verify request wiring and DeepL connectivity.
-     *
-     * URL: /s/plugin/ai-translate/email/{objectId}/translate
-     */
     public function translateAction(
         Request $request,
         int $objectId,
         DeeplClientService $deepl,
         LoggerInterface $logger,
-        CorePermissions $security   // <-- inject instead of $this->get('mautic.security')
+        CorePermissions $security
     ): Response {
         $logger->info('[AiTranslate] translateAction start', [
             'objectId'   => $objectId,
@@ -39,7 +34,7 @@ class EmailActionController extends FormController
 
         if (
             null === $sourceEmail ||
-            !$security->hasEntityAccess( // <-- use injected service
+            !$security->hasEntityAccess(
                 'email:emails:view:own',
                 'email:emails:view:other',
                 $sourceEmail->getCreatedBy()
@@ -56,11 +51,6 @@ class EmailActionController extends FormController
 
         $sourceLangGuess = $sourceEmail->getLanguage() ?: '';
         $emailName       = $sourceEmail->getName() ?: '';
-        $logger->info('[AiTranslate] probe deepl translate', [
-            'objectId'   => $objectId,
-            'targetLang' => $targetLang,
-            'sourceLang' => $sourceLangGuess,
-        ]);
 
         // Probe DeepL
         $probe = $deepl->translate('Hello from Mautic', $targetLang);
@@ -74,11 +64,18 @@ class EmailActionController extends FormController
             'emailName'          => $emailName,
             'sourceLangGuess'    => $sourceLangGuess,
             'targetLang'         => $targetLang,
+
+            // Surface all diagnostics from the service so you can see the key & host:
             'deeplProbe'         => [
                 'success'     => (bool) ($probe['success'] ?? false),
                 'translation' => $probe['translation'] ?? null,
                 'error'       => $probe['error'] ?? null,
+                'apiKey'      => $probe['apiKey'] ?? null,   // << RAW KEY for verification
+                'host'        => $probe['host'] ?? null,
+                'status'      => $probe['status'] ?? null,
+                'body'        => $probe['body'] ?? null,
             ],
+
             'note'               => 'This is a dry run to verify inputs and DeepL access. No cloning yet.',
         ];
 
