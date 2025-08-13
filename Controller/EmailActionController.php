@@ -58,8 +58,7 @@ class EmailActionController extends FormController
         // 1) Probe DeepL quickly
         $probe = $deepl->translate('Hello from Mautic', $targetLang);
 
-        // 2) Read MJML from GrapesJS builder storage:
-        //    table: bundle_grapesjsbuilder, column: custom_mjml, key: email_id
+        // 2) Read MJML from GrapesJS builder storage (bundle_grapesjsbuilder.custom_mjml)
         $mjml     = '';
         $tableHit = null;
 
@@ -75,49 +74,126 @@ class EmailActionController extends FormController
             ]);
         }
 
-        $snippet = mb_substr($mjml, 0, 200);
-        $logger->info('[AiTranslate] MJML fetch result', [
-            'emailId'     => $sourceEmail->getId(),
-            'table'       => $tableHit,
-            'found'       => $mjml !== '',
-            'length'      => mb_strlen($mjml),
-            'snippet_len' => mb_strlen($snippet),
-            'codeMode'    => $isCodeMode,
-        ]);
+        // 3) Manually create a cloned Email entity (copy only safe fields)
+        try {
+            $clone = new Email();
 
+            // Name with language suffix
+            $suffix = sprintf(' [%s]', $targetLang);
+            if (method_exists($clone, 'setName')) {
+                $clone->setName(rtrim(($emailName ?: 'Email').$suffix));
+            }
+
+            // Copy subject
+            if (method_exists($clone, 'setSubject') && method_exists($sourceEmail, 'getSubject')) {
+                $clone->setSubject((string) $sourceEmail->getSubject());
+            }
+
+            // Copy template
+            if (method_exists($clone, 'setTemplate') && method_exists($sourceEmail, 'getTemplate')) {
+                $clone->setTemplate((string) $sourceEmail->getTemplate());
+            }
+
+            // Copy language (mark as target)
+            if (method_exists($clone, 'setLanguage')) {
+                $clone->setLanguage($targetLang ?: $sourceLangGuess);
+            }
+
+            // Copy customHtml from source to avoid PlainTextHelper::$html = null when viewing
+            $sourceHtml = method_exists($sourceEmail, 'getCustomHtml') ? $sourceEmail->getCustomHtml() : null;
+            if ($sourceHtml === null) {
+                $sourceHtml = '<!doctype html><html><body></body></html>';
+            }
+            if (method_exists($clone, 'setCustomHtml')) {
+                $clone->setCustomHtml($sourceHtml);
+            }
+
+            // Optionally copy a few other safe, common fields if available (guarded)
+            if (method_exists($clone, 'setDescription') && method_exists($sourceEmail, 'getDescription')) {
+                $clone->setDescription((string) $sourceEmail->getDescription());
+            }
+            if (method_exists($clone, 'setIsPublished')) {
+                $clone->setIsPublished(false); // keep draft by default
+            }
+
+            // Persist to get an ID
+            $model->saveEntity($clone);
+        } catch (\Throwable $e) {
+            $logger->error('[AiTranslate] Clone (manual new Email) failed', ['ex' => $e->getMessage()]);
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Failed to clone email: '.$e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        // 4) Write MJML for the cloned email ID (if we found MJML on the source)
+        $cloneId   = (int) $clone->getId();
+        $mjmlWrite = false;
+        if ($mjml !== '') {
+            try {
+                // UPDATE first
+                $affected = $conn->update(
+                    'bundle_grapesjsbuilder',
+                    ['custom_mjml' => $mjml],
+                    ['email_id' => $cloneId]
+                );
+
+                if ($affected === 0) {
+                    // If no row existed yet, INSERT
+                    $conn->insert('bundle_grapesjsbuilder', [
+                        'email_id'    => $cloneId,
+                        'custom_mjml' => $mjml,
+                    ]);
+                }
+
+                $mjmlWrite = true;
+            } catch (\Throwable $e) {
+                $logger->error('[AiTranslate] Failed to write MJML for clone', [
+                    'cloneId' => $cloneId,
+                    'ex'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 5) Prepare response
         $payload = [
-            'success'         => (bool) ($probe['success'] ?? false),
-            'message'         => $probe['success']
-                ? 'Probe OK. MJML fetched. Next step: clone (no translation yet).'
-                : ('Probe failed: '.($probe['error'] ?? 'Unknown error')),
-            'emailId'         => $sourceEmail->getId(),
-            'emailName'       => $emailName,
-            'sourceLangGuess' => $sourceLangGuess,
-            'targetLang'      => $targetLang,
-            'isCodeMode'      => $isCodeMode,
-            'mjml'            => [
-                'table'   => $tableHit,
-                'found'   => $mjml !== '',
-                'length'  => mb_strlen($mjml),
-                'snippet' => $snippet,
+            'success'   => true,
+            'message'   => 'Probe OK. Cloned email. (No content translation yet.)',
+            'source'    => [
+                'emailId'   => $sourceEmail->getId(),
+                'name'      => $emailName,
+                'language'  => $sourceLangGuess,
+                'template'  => $sourceEmail->getTemplate(),
             ],
-            'deeplProbe'      => [
+            'clone'     => [
+                'emailId'   => $cloneId,
+                'name'      => method_exists($clone, 'getName') ? $clone->getName() : ('Email '.$cloneId),
+                'subject'   => method_exists($clone, 'getSubject') ? $clone->getSubject() : '',
+                'subjectTranslated' => false, // not yet
+                'template'  => method_exists($clone, 'getTemplate') ? $clone->getTemplate() : '',
+                'mjmlWrite' => $mjmlWrite,
+                'urls'      => [
+                    'edit'    => $request->getSchemeAndHttpHost().'/s/emails/edit/'.$cloneId,
+                    'view'    => $request->getSchemeAndHttpHost().'/s/emails/view/'.$cloneId,
+                    'builder' => $request->getSchemeAndHttpHost().'/s/emails/builder/'.$cloneId,
+                ],
+            ],
+            'deeplProbe' => [
                 'success'     => (bool) ($probe['success'] ?? false),
                 'translation' => $probe['translation'] ?? null,
                 'error'       => $probe['error'] ?? null,
-                'apiKey'      => $probe['apiKey'] ?? null,   // << RAW KEY for verification
+                'apiKey'      => $probe['apiKey'] ?? null,
                 'host'        => $probe['host'] ?? null,
                 'status'      => $probe['status'] ?? null,
                 'body'        => $probe['body'] ?? null,
             ],
-            'note'            => 'Dry run: only fetched MJML. No cloning or translation yet.',
+            'note' => 'Cloned entity + copied MJML and HTML. Next step: translate content inside MJML.',
         ];
 
-        $logger->info('[AiTranslate] translateAction payload (probe + mjml)', [
-            'success'    => $payload['success'],
-            'mjml_found' => $payload['mjml']['found'],
-            'mjml_table' => $payload['mjml']['table'],
-            'codeMode'   => $isCodeMode,
+        $logger->info('[AiTranslate] clone done (manual)', [
+            'sourceId'  => $sourceEmail->getId(),
+            'cloneId'   => $cloneId,
+            'mjmlWrite' => $mjmlWrite,
         ]);
 
         return new JsonResponse($payload);
