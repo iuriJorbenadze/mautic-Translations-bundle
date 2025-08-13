@@ -16,20 +16,11 @@ class DeeplClientService
     public function __construct(IntegrationHelper $integrationHelper, ?LoggerInterface $logger = null)
     {
         $this->integrationHelper = $integrationHelper;
-        $this->logger = $logger;
+        $this->logger            = $logger;
     }
 
     /**
-     * @return array{
-     *   success: bool,
-     *   translation?: string|null,
-     *   error?: string|null,
-     *   apiKey?: string,
-     *   host?: string,
-     *   status?: int|null,
-     *   body?: string|null,
-     *   raw?: mixed
-     * }
+     * Try translate; auto-detect plan by key, fallback on 403.
      */
     public function translate(string $text, string $targetLang = 'DE'): array
     {
@@ -37,31 +28,54 @@ class DeeplClientService
         $keys        = $integration ? $integration->getDecryptedApiKeys() : [];
         $apiKey      = $keys['deepl_api_key'] ?? '';
 
-        $host = (is_string($apiKey) && str_starts_with($apiKey, 'deepl-'))
-            ? $this->apiUrlPro
-            : $this->apiUrlFree;
-
-        // DEBUG: log raw key + host
-        if ($this->logger) {
-            $this->logger->info('[AiTranslate][DeeplClientService] Using API key + host', [
-                'apiKey' => $apiKey,
-                'host'   => $host,
-            ]);
-        } else {
-            @error_log('[AiTranslate][DeeplClientService] Using API key: '.$apiKey.' | host: '.$host);
-        }
-
         if ($apiKey === '') {
             return [
                 'success' => false,
                 'error'   => 'API key not set',
                 'apiKey'  => $apiKey,
-                'host'    => $host,
+                'host'    => null,
                 'status'  => null,
                 'body'    => null,
             ];
         }
 
+        // 1) Detect plan by suffix (DeepL Free keys typically end with ":fx")
+        $guessFree = str_ends_with($apiKey, ':fx');
+        $firstHost = $guessFree ? $this->apiUrlFree : $this->apiUrlPro;
+        $altHost   = $guessFree ? $this->apiUrlPro  : $this->apiUrlFree;
+
+        $this->log('[AiTranslate][DeepL] Plan guess', [
+            'guess' => $guessFree ? 'free' : 'pro',
+            'firstHost' => $firstHost,
+            'altHost'   => $altHost,
+            'apiKey'    => $apiKey,
+        ]);
+
+        // 2) Try first host
+        $first = $this->callDeepL($firstHost, $apiKey, $text, $targetLang);
+        if ($first['status'] !== 403) {
+            return $first; // success or other error (not auth/endpoint mismatch)
+        }
+
+        // 3) If 403, fallback to the other host once
+        $this->log('[AiTranslate][DeepL] 403 on first host, trying fallback', [
+            'firstHost' => $firstHost,
+            'altHost'   => $altHost,
+            'status'    => $first['status'],
+            'body'      => $first['body'],
+        ]);
+
+        $second = $this->callDeepL($altHost, $apiKey, $text, $targetLang);
+
+        // Prefer success if second worked; otherwise return richer error (second)
+        return $second['success'] ? $second : $second;
+    }
+
+    /**
+     * Low-level call helper (keeps your diagnostics).
+     */
+    private function callDeepL(string $host, string $apiKey, string $text, string $targetLang): array
+    {
         $data = [
             'auth_key'    => $apiKey,
             'text'        => $text,
@@ -83,14 +97,11 @@ class DeeplClientService
         curl_close($ch);
 
         if ($response === false) {
-            if ($this->logger) {
-                $this->logger->error('[AiTranslate][DeeplClientService] cURL error', [
-                    'errno' => $errno,
-                    'error' => $error,
-                ]);
-            } else {
-                @error_log('[AiTranslate][DeeplClientService] cURL error #'.$errno.': '.$error);
-            }
+            $this->log('[AiTranslate][DeepL] cURL error', [
+                'host'  => $host,
+                'errno' => $errno,
+                'error' => $error,
+            ]);
 
             return [
                 'success' => false,
@@ -142,5 +153,14 @@ class DeeplClientService
             'body'        => $rawBody,
             'raw'         => $json,
         ];
+    }
+
+    private function log(string $msg, array $ctx = []): void
+    {
+        if ($this->logger) {
+            $this->logger->info($msg, $ctx);
+        } else {
+            @error_log($msg.' '.json_encode($ctx));
+        }
     }
 }
