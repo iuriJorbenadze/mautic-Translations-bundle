@@ -181,14 +181,10 @@ class EmailActionController extends FormController
         // 6) Done
         $lockedMode  = isset($mj['lockedMode']) ? (bool) $mj['lockedMode'] : false;
         $lockedPairs = isset($mj['lockedPairs']) ? (int) $mj['lockedPairs'] : 0;
-        $notice = $lockedMode
-            ? 'Now translating content as defined by markers'
-            : 'Now translating entire content (no markers found)';
 
         $payload = [
             'success' => true,
-            // ️ Add explicit builder/save instruction to the message
-            'message' => $notice . ' - Done. Please open the Email Builder, review the changes, and click Save to persist them.',
+            'message' => 'Done.',
             'source'  => [
                 'emailId'   => $sourceEmail->getId(),
                 'name'      => $emailName,
