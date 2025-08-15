@@ -8,6 +8,8 @@ use Mautic\CoreBundle\Controller\FormController;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\EmailBundle\Entity\Email;
 use MauticPlugin\AiTranslateBundle\Service\DeeplClientService;
+use MauticPlugin\AiTranslateBundle\Service\MjmlTranslateService;
+use MauticPlugin\AiTranslateBundle\Service\MjmlCompileService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,6 +21,8 @@ class EmailActionController extends FormController
         Request $request,
         int $objectId,
         DeeplClientService $deepl,
+        MjmlTranslateService $mjmlService,
+        MjmlCompileService $mjmlCompiler,
         LoggerInterface $logger,
         CorePermissions $security,
         Connection $conn
@@ -46,29 +50,32 @@ class EmailActionController extends FormController
             return new JsonResponse(['success' => false, 'message' => 'Email not found or access denied.'], Response::HTTP_NOT_FOUND);
         }
 
-        // DeepL wants uppercase; Mautic Email.language wants lowercase ISO 639-1
-        $targetLangApi = strtoupper((string) $request->get('targetLang', '')); // e.g. "DE"
+        // DeepL wants UPPER; Mautic Email.language wants lower
+        $targetLangApi = strtoupper((string) $request->get('targetLang', ''));
         if ($targetLangApi === '') {
             return new JsonResponse(['success' => false, 'message' => 'Target language not provided.'], Response::HTTP_BAD_REQUEST);
         }
-        $targetLangIso = strtolower($targetLangApi); // e.g. "de"
+        $targetLangIso = strtolower($targetLangApi);
 
-        $sourceLangGuess = strtolower($sourceEmail->getLanguage() ?: ''); // normalize for consistency
+        $sourceLangGuess = strtolower($sourceEmail->getLanguage() ?: '');
         $emailName       = $sourceEmail->getName() ?: '';
         $isCodeMode      = $sourceEmail->getTemplate() === 'mautic_code_mode';
 
-        // 1) Quick DeepL probe (use UPPER for API)
+        // 1) Quick probe
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
+        if (!($probe['success'] ?? false)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Probe failed: '.($probe['error'] ?? 'Unknown error'),
+                'deeplProbe' => $probe,
+            ], Response::HTTP_BAD_REQUEST);
+        }
 
-        // 2) Read MJML from GrapesJS builder storage (bundle_grapesjsbuilder.custom_mjml)
-        $mjml     = '';
-        $tableHit = null;
-
+        // 2) Read MJML from builder table
+        $mjml = '';
         try {
-            $sql  = 'SELECT custom_mjml FROM bundle_grapesjsbuilder WHERE email_id = :id LIMIT 1';
-            $row  = $conn->fetchAssociative($sql, ['id' => $sourceEmail->getId()]);
+            $row  = $conn->fetchAssociative('SELECT custom_mjml FROM bundle_grapesjsbuilder WHERE email_id = :id LIMIT 1', ['id' => $sourceEmail->getId()]);
             $mjml = isset($row['custom_mjml']) ? (string) $row['custom_mjml'] : '';
-            $tableHit = 'bundle_grapesjsbuilder.custom_mjml';
         } catch (\Throwable $e) {
             $logger->error('[AiTranslate] Failed to fetch MJML from bundle_grapesjsbuilder', [
                 'emailId' => $sourceEmail->getId(),
@@ -76,7 +83,7 @@ class EmailActionController extends FormController
             ]);
         }
 
-        // 3) Clone the entity (Mautic pattern) and FIX language casing
+        // 3) Clone the entity (pattern similar to AB test) + fix language casing and safe HTML
         try {
             $emailType = $sourceEmail->getEmailType();
 
@@ -111,77 +118,109 @@ class EmailActionController extends FormController
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // 4) Write MJML for the cloned email ID (copy source MJML if present)
-        $cloneId   = (int) $clone->getId();
-        $mjmlWrite = false;
+        $cloneId = (int) $clone->getId();
 
+        // 4) If we had MJML, write it to the clone first…
+        $wroteMjml = false;
         if ($mjml !== '') {
             try {
-                // UPDATE first
-                $affected = $conn->update(
-                    'bundle_grapesjsbuilder',
-                    ['custom_mjml' => $mjml],
-                    ['email_id' => $cloneId]
-                );
-
+                $affected = $conn->update('bundle_grapesjsbuilder', ['custom_mjml' => $mjml], ['email_id' => $cloneId]);
                 if ($affected === 0) {
-                    // If no row existed yet, INSERT
-                    $conn->insert('bundle_grapesjsbuilder', [
-                        'email_id'    => $cloneId,
-                        'custom_mjml' => $mjml,
-                    ]);
+                    $conn->insert('bundle_grapesjsbuilder', ['email_id' => $cloneId, 'custom_mjml' => $mjml]);
                 }
-
-                $mjmlWrite = true;
+                $wroteMjml = true;
             } catch (\Throwable $e) {
-                $logger->error('[AiTranslate] Failed to write MJML for clone', [
-                    'cloneId' => $cloneId,
-                    'ex'      => $e->getMessage(),
-                ]);
+                $logger->error('[AiTranslate] Failed initial MJML write for clone', ['cloneId' => $cloneId, 'ex' => $e->getMessage()]);
             }
         }
 
-        // 5) Prepare response
+        // 5) Translate subject + MJML (if present) and set custom_html to compiled HTML
+        $translatedSubject = null;
+        $translatedMjml    = null;
+        $samples           = [];
+
+        try {
+            // Subject
+            $origSubject = (string) $clone->getSubject();
+            if ($origSubject !== '') {
+                $translatedSubject = $mjmlService->translateRichText($origSubject, $targetLangApi, $samples);
+                if ($translatedSubject !== $origSubject) {
+                    $clone->setSubject($translatedSubject);
+                }
+            }
+
+            // MJML
+            if ($mjml !== '') {
+                $mj = $mjmlService->translateMjml($mjml, $targetLangApi);
+                $translatedMjml = $mj['mjml'] ?? $mjml;
+
+                // Persist translated MJML to clone
+                $affected = $conn->update('bundle_grapesjsbuilder', ['custom_mjml' => $translatedMjml], ['email_id' => $cloneId]);
+                if ($affected === 0) {
+                    $conn->insert('bundle_grapesjsbuilder', ['email_id' => $cloneId, 'custom_mjml' => $translatedMjml]);
+                }
+
+                // Compile MJML → HTML and set as custom_html so preview reflects translation immediately
+                $compiled = $mjmlCompiler->compile($translatedMjml, $clone->getTemplate());
+                if (($compiled['success'] ?? false) && !empty($compiled['html'])) {
+                    $clone->setCustomHtml($compiled['html']);
+                } else {
+                    $logger->warning('[AiTranslate] MJML compile failed; keeping existing custom_html', [
+                        'cloneId' => $cloneId,
+                        'error'   => $compiled['error'] ?? 'unknown',
+                    ]);
+                }
+            }
+
+            // Save updated entity LAST so custom_html is persisted after translation
+            $model->saveEntity($clone);
+        } catch (\Throwable $e) {
+            $logger->error('[AiTranslate] Translation / compile step failed', ['cloneId' => $cloneId, 'ex' => $e->getMessage()]);
+            // We still return details so you can inspect
+        }
+
+        // 6) Done
         $payload = [
-            'success'   => true,
-            'message'   => 'Probe OK. Cloned email. (No content translation yet.)',
-            'source'    => [
+            'success' => true,
+            'message' => 'Clone created and translation completed (custom_html updated from compiled MJML).',
+            'source'  => [
                 'emailId'   => $sourceEmail->getId(),
                 'name'      => $emailName,
                 'language'  => $sourceLangGuess,      // e.g. "en"
                 'template'  => $sourceEmail->getTemplate(),
             ],
-            'clone'     => [
+            'clone'   => [
                 'emailId'   => $cloneId,
                 'name'      => $clone->getName(),
                 'subject'   => $clone->getSubject(),
-                'subjectTranslated' => false,
                 'template'  => $clone->getTemplate(),
-                'language'  => $clone->getLanguage(), // should be lowercase (e.g. "de")
-                'mjmlWrite' => $mjmlWrite,
+                'language'  => $clone->getLanguage(), // lowercase (e.g. "de")
+                'mjmlWrite' => $wroteMjml,
                 'urls'      => [
                     'edit'    => $request->getSchemeAndHttpHost().'/s/emails/edit/'.$cloneId,
                     'view'    => $request->getSchemeAndHttpHost().'/s/emails/view/'.$cloneId,
                     'builder' => $request->getSchemeAndHttpHost().'/s/emails/builder/'.$cloneId,
+                    'preview' => $request->getSchemeAndHttpHost().'/email/preview/'.$cloneId,
                 ],
+            ],
+            'translation' => [
+                'subjectChanged' => ($translatedSubject !== null),
+                'mjmlChanged'    => ($translatedMjml !== null),
+                'samples'        => array_slice($samples, 0, 4),
             ],
             'deeplProbe' => [
                 'success'     => (bool) ($probe['success'] ?? false),
                 'translation' => $probe['translation'] ?? null,
                 'error'       => $probe['error'] ?? null,
-                'apiKey'      => $probe['apiKey'] ?? null,
                 'host'        => $probe['host'] ?? null,
                 'status'      => $probe['status'] ?? null,
-                'body'        => $probe['body'] ?? null,
             ],
-            'note' => 'Cloned entity + copied MJML and HTML. Next step: translate content inside MJML.',
+            'note' => 'custom_html is now compiled from the translated MJML so preview reflects the translation immediately.',
         ];
 
-        $logger->info('[AiTranslate] clone done (entity __clone)', [
-            'sourceId'   => $sourceEmail->getId(),
-            'cloneId'    => $cloneId,
-            'mjmlWrite'  => $mjmlWrite,
-            'cloneLang'  => $clone->getLanguage(),
+        $logger->info('[AiTranslate] translateAction finished', [
+            'cloneId'  => $cloneId,
+            'changed'  => $payload['translation'],
         ]);
 
         return new JsonResponse($payload);
