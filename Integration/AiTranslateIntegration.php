@@ -6,9 +6,11 @@ use Mautic\PluginBundle\Integration\AbstractIntegration;
 
 class AiTranslateIntegration extends AbstractIntegration
 {
+    public const NAME = 'AiTranslate'; // machine name
+
     public function getName(): string
     {
-        return 'AiTranslate';
+        return self::NAME;
     }
 
     public function getRequiredKeyFields(): array
@@ -18,8 +20,26 @@ class AiTranslateIntegration extends AbstractIntegration
         ];
     }
 
+
+
+    public function getDisplayName(): string
+    {
+        return 'AI Translate';
+    }
+
+    public function getIcon(): string
+    {
+        return 'plugins/AiTranslateBundle/Assets/img/icon.png';
+    }
+
     public function getAuthenticationType(): string
     {
         return 'none';
+    }
+
+    public function isConfigured(): bool
+    {
+        // Let it be enabled/disabled immediately
+        return true;
     }
 }

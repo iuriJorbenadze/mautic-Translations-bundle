@@ -16,6 +16,13 @@ return function (ContainerConfigurator $configurator): void {
     $services->load('MauticPlugin\\AiTranslateBundle\\', '../')
         ->exclude('../{'.implode(',', MauticCoreExtension::DEFAULT_EXCLUDES).'}');
 
+    // --- Integration (so it shows on /s/plugins) ---
+    // Make sure Integration\AiTranslateIntegration::getName() returns 'AiTranslate'
+    $services->set(MauticPlugin\AiTranslateBundle\Integration\AiTranslateIntegration::class)
+        ->parent('mautic.integration.abstract')
+        ->tag('mautic.integration', ['integration' => 'AiTranslate'])
+        ->tag('mautic.config_integration');
+
     // DeepL client with IntegrationHelper + logger
     $services->set(MauticPlugin\AiTranslateBundle\Service\DeeplClientService::class)
         ->arg('$integrationHelper', service('mautic.helper.integration'))
@@ -26,8 +33,7 @@ return function (ContainerConfigurator $configurator): void {
         ->arg('$deepl', service(MauticPlugin\AiTranslateBundle\Service\DeeplClientService::class))
         ->arg('$logger', service('monolog.logger.mautic'));
 
-    // NEW: MJML compiler
+    // MJML compiler
     $services->set(MauticPlugin\AiTranslateBundle\Service\MjmlCompileService::class)
         ->arg('$logger', service('monolog.logger.mautic'));
-
 };
