@@ -20,9 +20,44 @@ class DeeplClientService
     }
 
     /**
-     * Try translate; auto-detect plan by key, fallback on 403.
+     * Plain-text translation (no HTML handling).
+     * $params can include DeepL options like formality, etc.
      */
-    public function translate(string $text, string $targetLang = 'DE'): array
+    public function translate(string $text, string $targetLang = 'DE', array $params = []): array
+    {
+        $payload = array_merge([
+            'text'              => $text,
+            'target_lang'       => strtoupper($targetLang),
+            // keep formatting when possible
+            'preserve_formatting' => 1,
+        ], $params);
+
+        return $this->requestWithHostFailover($payload);
+    }
+
+    /**
+     * HTML-aware translation (DeepL tag_handling=html).
+     * We do not pre/post "shield" HTML – we let DeepL handle markup.
+     */
+    public function translateHtml(string $html, string $targetLang = 'DE', array $params = []): array
+    {
+        $payload = array_merge([
+            'text'                => $html,
+            'target_lang'         => strtoupper($targetLang),
+            'tag_handling'        => 'html',
+            // DeepL defaults to nonewlines with tag_handling=html in next-gen; set explicitly for clarity
+            'split_sentences'     => 'nonewlines',
+            // Helps keep whitespace/line-breaks intact where possible
+            'preserve_formatting' => 1,
+        ], $params);
+
+        return $this->requestWithHostFailover($payload);
+    }
+
+    /**
+     * Detect plan by key and try free/pro host accordingly with 403 fallback.
+     */
+    private function requestWithHostFailover(array $payload): array
     {
         $integration = $this->integrationHelper->getIntegrationObject('AiTranslate');
         $keys        = $integration ? $integration->getDecryptedApiKeys() : [];
@@ -32,55 +67,46 @@ class DeeplClientService
             return [
                 'success' => false,
                 'error'   => 'API key not set',
-                'apiKey'  => $apiKey,
+
                 'host'    => null,
                 'status'  => null,
                 'body'    => null,
             ];
         }
 
-        // 1) Detect plan by suffix (DeepL Free keys typically end with ":fx")
         $guessFree = str_ends_with($apiKey, ':fx');
         $firstHost = $guessFree ? $this->apiUrlFree : $this->apiUrlPro;
         $altHost   = $guessFree ? $this->apiUrlPro  : $this->apiUrlFree;
 
-        $this->log('[AiTranslate][DeepL] Plan guess', [
-            'guess' => $guessFree ? 'free' : 'pro',
+        $this->log('[AiTranslate][DeepL] plan guess', [
+            'guess'     => $guessFree ? 'free' : 'pro',
             'firstHost' => $firstHost,
             'altHost'   => $altHost,
-            'apiKey'    => $apiKey,
         ]);
 
-        // 2) Try first host
-        $first = $this->callDeepL($firstHost, $apiKey, $text, $targetLang);
-        if ($first['status'] !== 403) {
-            return $first; // success or other error (not auth/endpoint mismatch)
+        $first = $this->callDeepL($firstHost, $apiKey, $payload);
+        if (($first['status'] ?? null) !== 403) {
+            return $first;
         }
 
-        // 3) If 403, fallback to the other host once
         $this->log('[AiTranslate][DeepL] 403 on first host, trying fallback', [
             'firstHost' => $firstHost,
             'altHost'   => $altHost,
-            'status'    => $first['status'],
-            'body'      => $first['body'],
+            'status'    => $first['status'] ?? null,
+            'body'      => $first['body'] ?? null,
         ]);
 
-        $second = $this->callDeepL($altHost, $apiKey, $text, $targetLang);
-
-        // Prefer success if second worked; otherwise return richer error (second)
+        $second = $this->callDeepL($altHost, $apiKey, $payload);
         return $second['success'] ? $second : $second;
     }
 
     /**
-     * Low-level call helper (keeps your diagnostics).
+     * Low-level HTTP request.
+     * $payload is the full DeepL form body (we add auth_key here).
      */
-    private function callDeepL(string $host, string $apiKey, string $text, string $targetLang): array
+    private function callDeepL(string $host, string $apiKey, array $payload): array
     {
-        $data = [
-            'auth_key'    => $apiKey,
-            'text'        => $text,
-            'target_lang' => strtoupper($targetLang),
-        ];
+        $data = array_merge(['auth_key' => $apiKey], $payload);
 
         $ch = curl_init($host);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

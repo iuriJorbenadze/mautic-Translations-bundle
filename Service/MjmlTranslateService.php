@@ -12,17 +12,8 @@ class MjmlTranslateService
     ) {}
 
     /**
-     * Translate MJML in-place, respecting LOCKED markers and mj-raw blocks.
-     *
-     * LOCKED regions:
-     *   <!-- LOCKED_START --> ... <!-- LOCKED_END -->
-     * Everything inside remains exactly as-is (including comments/tags).
-     * Outside of LOCKED, we translate text of:
-     *   - <mj-preview>, <mj-text>, <mj-button> (inner text + title="")
-     *   - <mj-image alt="">
-     * Comments and markup are never translated.
-     *
-     * @return array{changed: bool, mjml: string, samples: array<int,array{from:string,to:string}>, lockedMode: bool, lockedPairs: int}
+     * Translate MJML in-place, respecting LOCKED markers and <mj-raw>.
+     * Uses DeepL HTML mode for inner HTML (no placeholder shielding).
      */
     public function translateMjml(string $mjml, string $targetLangApi): array
     {
@@ -36,6 +27,7 @@ class MjmlTranslateService
         if ($segments['pairs'] === 0 && !$segments['sawAnyMarker']) {
             $out     = $this->translateMjmlSegmentCore($mjml, $targetLangApi, $samples);
             $changed = ($out !== $original);
+
             $this->log('[AiTranslate][MJML] translateMjml done (no markers)', [
                 'changed' => $changed,
                 'samples' => array_slice($samples, 0, 2),
@@ -88,72 +80,157 @@ class MjmlTranslateService
     }
 
     /**
-     * Core translator for a single (unlocked) MJML fragment:
-     * - shields <mj-raw>
-     * - translates mj-preview, mj-text, mj-button (inner + title), mj-image alt
-     * - restores <mj-raw>
+     * Core pass over an unlocked MJML fragment.
+     * - exclude <mj-raw>
+     * - translate mj-preview, mj-text, mj-button (inner HTML)
+     * - translate title/alt attributes with token-preserving logic
      */
     private function translateMjmlSegmentCore(string $frag, string $targetLangApi, array &$samples): string
     {
-        // Skip translating anything inside <mj-raw>…</mj-raw>
+        // Exclude <mj-raw>…</mj-raw>
         $rawBlocks = [];
         $frag = $this->extractAndShieldMjRaw($frag, $rawBlocks);
 
-        // 1) <mj-preview>
+        // <mj-preview>…</mj-preview>
         $frag = preg_replace_callback('/<mj-preview>(.*?)<\/mj-preview>/si', function ($m) use ($targetLangApi, &$samples) {
-            $translated = $this->translateRichText($m[1], $targetLangApi, $samples);
+            $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
             return '<mj-preview>'.$translated.'</mj-preview>';
         }, $frag);
 
-        // 2) <mj-text>…</mj-text>
+        // <mj-text>…</mj-text>
         $frag = preg_replace_callback('/<mj-text\b[^>]*>(.*?)<\/mj-text>/si', function ($m) use ($targetLangApi, &$samples) {
-            $translated = $this->translateRichText($m[1], $targetLangApi, $samples);
+            $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
             return str_replace($m[1], $translated, $m[0]);
         }, $frag);
 
-        // 3) <mj-button>…</mj-button> (label) + title=""
+        // <mj-button ...>label</mj-button> + title=""
         $frag = preg_replace_callback('/<mj-button\b([^>]*)>(.*?)<\/mj-button>/si', function ($m) use ($targetLangApi, &$samples) {
             $attrs   = $m[1];
             $inner   = $m[2];
-            $innerTr = $this->translateRichText($inner, $targetLangApi, $samples);
 
+            // Translate the visible label as HTML
+            $innerTr = $this->translateInnerHtml($inner, $targetLangApi, $samples);
+
+            // Translate title="..." (plain text) but preserve tokens/Twig segments
             $attrsTr = preg_replace_callback('/\btitle="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
-                $t = $this->translateRichText($mm[1], $targetLangApi, $samples);
+                $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
                 return 'title="'.htmlspecialchars($t, ENT_QUOTES).'"';
             }, $attrs);
 
             return '<mj-button'.$attrsTr.'>'.$innerTr.'</mj-button>';
         }, $frag);
 
-        // 4) <mj-image alt="">  (preserve self-closing)
+        // <mj-image ... alt="..."/>  (preserve self-closing)
         $frag = preg_replace_callback('/<mj-image\b([^>]*?)(\s*\/?)>/si', function ($m) use ($targetLangApi, &$samples) {
             $attrs   = $m[1];
             $closing = $m[2] ?: '';
             $attrsTr = preg_replace_callback('/\balt="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
-                $t = $this->translateRichText($mm[1], $targetLangApi, $samples);
+                $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
                 return 'alt="'.htmlspecialchars($t, ENT_QUOTES).'"';
             }, $attrs);
 
             return '<mj-image'.$attrsTr.$closing.'>';
         }, $frag);
 
-        // Put back <mj-raw> blocks
+        // Restore <mj-raw> blocks
         $frag = $this->unshieldMjRaw($frag, $rawBlocks);
 
         return $frag;
     }
 
     /**
-     * Split a document into segments (locked/unlocked + marker nodes).
-     * Handles unbalanced/nested markers gracefully by treating everything
-     * after the first START until next END as locked (no nesting).
-     *
-     * @return array{
-     *   pairs:int,
-     *   unbalanced:bool,
-     *   sawAnyMarker:bool,
-     *   segments: array<int, array{type:'text'|'marker', locked?:bool, text:string}>
-     * }
+     * DeepL HTML-mode translation for inner HTML chunks.
+     * Records a sample if text changed.
+     */
+    private function translateInnerHtml(string $html, string $targetLangApi, array &$samples): string
+    {
+        $orig = $html;
+        $resp = $this->deepl->translateHtml($html, $targetLangApi);
+        if (!($resp['success'] ?? false)) {
+            $this->log('[AiTranslate][MJML] translateInnerHtml failed', ['error' => $resp['error'] ?? 'unknown']);
+            return $orig;
+        }
+        $translated = (string) ($resp['translation'] ?? $orig);
+        if ($translated !== $orig) {
+            $samples[] = ['from' => $this->preview($orig), 'to' => $this->preview($translated)];
+        }
+        return $translated;
+    }
+
+    /**
+     * Subject / plain text helper (kept for subjects etc., no HTML).
+     */
+    public function translateRichText(string $text, string $targetLangApi, array &$samples = []): string
+    {
+        $orig = $text;
+        $resp = $this->deepl->translate($text, $targetLangApi);
+        if (!($resp['success'] ?? false)) {
+            $this->log('[AiTranslate][MJML] translateRichText failed', ['error' => $resp['error'] ?? 'unknown']);
+            return $orig;
+        }
+        $translated = (string) ($resp['translation'] ?? $orig);
+        if ($translated !== $orig) {
+            $samples[] = ['from' => $this->preview($orig), 'to' => $this->preview($translated)];
+        }
+        return $translated;
+    }
+
+    /**
+     * Translate attribute values while preserving tokens/Twig exactly.
+     * Splits text by token-like segments and only translates the non-token parts.
+     */
+    private function translateAttributePreserveTokens(string $value, string $targetLangApi, array &$samples): string
+    {
+        if ($value === '') {
+            return $value;
+        }
+
+        $parts = $this->splitByTokens($value);
+        $out   = '';
+
+        foreach ($parts as $p) {
+            if ($p['type'] === 'token') {
+                $out .= $p['value']; // keep as-is
+            } else {
+                $resp = $this->deepl->translate($p['value'], $targetLangApi);
+                $out .= ($resp['success'] ?? false) ? ($resp['translation'] ?? $p['value']) : $p['value'];
+            }
+        }
+
+        if ($out !== $value) {
+            $samples[] = ['from' => $this->preview($value), 'to' => $this->preview($out)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Split a string into token vs non-token parts.
+     * Tokens: Twig {{..}}, {%..%}, and Mautic-style {...}.
+     * @return array<int,array{type:'token'|'text',value:string}>
+     */
+    private function splitByTokens(string $s): array
+    {
+        $re = '/(\{\{.*?\}\}|\{%.*?%\}|\{[a-z0-9_:.%-]+(?:=[^}]+)?\})/i';
+        $chunks = preg_split($re, $s, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if ($chunks === false) {
+            return [['type' => 'text', 'value' => $s]];
+        }
+
+        $parts = [];
+        foreach ($chunks as $c) {
+            if ($c === '') continue;
+            if (preg_match($re, $c)) {
+                $parts[] = ['type' => 'token', 'value' => $c];
+            } else {
+                $parts[] = ['type' => 'text', 'value' => $c];
+            }
+        }
+        return $parts;
+    }
+
+    /**
+     * LOCKED markers splitter (unchanged).
      */
     private function splitByLockMarkers(string $s): array
     {
@@ -205,70 +282,11 @@ class MjmlTranslateService
         ];
     }
 
-    /**
-     * Translate a plain/rich text segment with token/tag/comment shielding.
-     * NOTE: placeholders use neutral prefixes to avoid translation (no real words).
-     */
-    public function translateRichText(string $text, string $targetLangApi, array &$samples = []): string
-    {
-        $original = $text;
-
-        // Use a single opaque family of placeholders: __PH0_n__, __PH1_n__, …
-        $map  = [];
-        $text = $this->shieldPattern($text, '/<!--.*?-->/s', $map, '__PH0_%06d__');      // comments
-        $text = $this->shieldPattern($text, '/<[^>]+>/',         $map, '__PH1_%06d__');  // html tags
-        $text = $this->shieldPattern($text, '/\{\{.*?\}\}|\{%.*?%\}/s', $map, '__PH2_%06d__'); // twig
-        $text = $this->shieldPattern($text, '/\{[a-z0-9_:.%-]+(?:=[^}]+)?\}/i', $map, '__PH3_%06d__'); // tokens
-
-        $forApi = trim(html_entity_decode($text, ENT_QUOTES));
-        if ($forApi === '') {
-            return $original;
-        }
-
-        $resp = $this->deepl->translate($forApi, $targetLangApi);
-        if (!($resp['success'] ?? false)) {
-            $this->log('[AiTranslate][MJML] segment translation failed', ['error' => $resp['error'] ?? 'unknown']);
-            return $original; // keep original on error
-        }
-
-        $tr = $resp['translation'] ?? $forApi;
-
-        // Unshield placeholders (longest keys first)
-        $tr = $this->unshield($tr, $map);
-
-        // Conservative re-entity (currently a no-op by design)
-        $tr = $this->reentity($tr);
-
-        if ($original !== $tr) {
-            $samples[] = ['from' => $this->preview($original), 'to' => $this->preview($tr)];
-        }
-
-        return $tr;
-    }
-
-    // --- helpers -------------------------------------------------------------
-
-    private function shieldPattern(string $text, string $regex, array &$map, string $tpl): string
-    {
-        return preg_replace_callback($regex, function ($m) use (&$map, $tpl) {
-            $key        = sprintf($tpl, count($map));
-            $map[$key]  = $m[0];
-            return $key;
-        }, $text);
-    }
-
-    private function unshield(string $text, array $map): string
-    {
-        if (!$map) return $text;
-        uksort($map, fn($a, $b) => strlen($b) <=> strlen($a));
-        return strtr($text, $map);
-    }
-
     private function extractAndShieldMjRaw(string $mjml, array &$blocks): string
     {
         return preg_replace_callback('/<mj-raw>(.*?)<\/mj-raw>/si', function ($m) use (&$blocks) {
-            $key              = '__PH4_' . str_pad((string)count($blocks), 6, '0', STR_PAD_LEFT) . '__';
-            $blocks[$key]     = $m[0]; // entire block
+            $key          = '__MJRAW_' . count($blocks) . '__';
+            $blocks[$key] = $m[0]; // entire block
             return $key;
         }, $mjml);
     }
@@ -276,14 +294,8 @@ class MjmlTranslateService
     private function unshieldMjRaw(string $mjml, array $blocks): string
     {
         if (!$blocks) return $mjml;
-        // Longer keys first
         uksort($blocks, fn($a, $b) => strlen($b) <=> strlen($a));
         return strtr($mjml, $blocks);
-    }
-
-    private function reentity(string $s): string
-    {
-        return $s;
     }
 
     private function preview(string $s, int $len = 80): string
