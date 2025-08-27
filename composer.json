@@ -14,5 +14,8 @@
       "MauticPlugin\\LeuchtfeuerTranslationsBundle\\": ""
     }
   },
-  "require": {}
+  "require": {
+    "phpstan/phpstan": "^2.0",
+    "friendsofphp/php-cs-fixer": "^3.14"
+  }
 }
