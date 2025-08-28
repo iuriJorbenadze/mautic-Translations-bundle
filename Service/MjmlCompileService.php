@@ -7,8 +7,9 @@ use Psr\Log\LoggerInterface;
 class MjmlCompileService
 {
     public function __construct(
-        private ?LoggerInterface $logger = null
-    ) {}
+        private ?LoggerInterface $logger = null,
+    ) {
+    }
 
     /**
      * Compile MJML into HTML.
@@ -23,7 +24,7 @@ class MjmlCompileService
     {
         // A) Try mjml CLI
         $cli = $this->findMjmlCli();
-        if ($cli !== null) {
+        if (null !== $cli) {
             $r = $this->compileViaCli($cli, $mjml);
             if ($r['success']) {
                 return $r;
@@ -33,6 +34,7 @@ class MjmlCompileService
 
         // B) Fallback: minimal tag mapping so preview shows translated text
         $html = $this->veryLightFallback($mjml);
+
         return ['success' => true, 'html' => $html];
     }
 
@@ -41,14 +43,15 @@ class MjmlCompileService
         // Try common ways to detect CLI
         $candidates = ['mjml', '/usr/bin/mjml', '/usr/local/bin/mjml', '/bin/mjml'];
         foreach ($candidates as $bin) {
-            $out = @shell_exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null') ?: '';
-            if ($out !== '') {
+            $out = @shell_exec('command -v '.escapeshellarg($bin).' 2>/dev/null') ?: '';
+            if ('' !== $out) {
                 return trim($out);
             }
             if (is_executable($bin)) {
                 return $bin;
             }
         }
+
         return null;
     }
 
@@ -66,7 +69,7 @@ class MjmlCompileService
 
         file_put_contents($in, $mjml);
 
-        $cmd = escapeshellcmd($cli) . ' ' . escapeshellarg($in) . ' -o ' . escapeshellarg($out) . ' 2>&1';
+        $cmd = escapeshellcmd($cli).' '.escapeshellarg($in).' -o '.escapeshellarg($out).' 2>&1';
         $this->log('[LeuchtfeuerTranslations][MJML] invoking CLI', ['cmd' => $cmd]);
 
         $output = @shell_exec($cmd);
@@ -77,7 +80,7 @@ class MjmlCompileService
         @unlink($in);
         @unlink($out);
 
-        if (!$ok || $html === false) {
+        if (!$ok || false === $html) {
             return ['success' => false, 'error' => trim((string) $output)];
         }
 
@@ -120,7 +123,7 @@ class MjmlCompileService
 
         // Wrap if bare
         if (!preg_match('/<html\b/i', $html)) {
-            $html = "<!doctype html>\n<html><body>\n" . $html . "\n</body></html>";
+            $html = "<!doctype html>\n<html><body>\n".$html."\n</body></html>";
         }
 
         return $html;
@@ -131,7 +134,7 @@ class MjmlCompileService
         if ($this->logger) {
             $this->logger->info($msg, $ctx);
         } else {
-            @error_log($msg . ' ' . json_encode($ctx));
+            @error_log($msg.' '.json_encode($ctx));
         }
     }
 }

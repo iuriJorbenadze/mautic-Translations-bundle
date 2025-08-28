@@ -20,8 +20,6 @@ class LeuchtfeuerTranslationsIntegration extends AbstractIntegration
         ];
     }
 
-
-
     public function getDisplayName(): string
     {
         return 'Translations by Leuchtfeuer';

@@ -1,5 +1,5 @@
 <?php
-// plugins/LeuchtfeuerTranslationsBundle/Config/config.php
+
 
 return [
     'name'        => 'Translations by Leuchtfeuer',
@@ -10,7 +10,7 @@ return [
     'services' => [
         'integrations' => [
             'mautic.integration.leuchtfeuertranslations' => [
-                'class' => \MauticPlugin\LeuchtfeuerTranslationsBundle\Integration\LeuchtfeuerTranslationsIntegration::class,
+                'class'     => MauticPlugin\LeuchtfeuerTranslationsBundle\Integration\LeuchtfeuerTranslationsIntegration::class,
                 'arguments' => [
                     'event_dispatcher',
                     'mautic.helper.cache_storage',

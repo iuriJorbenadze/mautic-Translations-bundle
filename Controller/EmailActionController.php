@@ -1,5 +1,4 @@
 <?php
-// plugins/LeuchtfeuerTranslationsBundle/Controller/EmailActionController.php
 
 namespace MauticPlugin\LeuchtfeuerTranslationsBundle\Controller;
 
@@ -8,8 +7,8 @@ use Mautic\CoreBundle\Controller\FormController;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\EmailBundle\Entity\Email;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\DeeplClientService;
-use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\MjmlTranslateService;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\MjmlCompileService;
+use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\MjmlTranslateService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -25,7 +24,7 @@ class EmailActionController extends FormController
         MjmlCompileService $mjmlCompiler,
         LoggerInterface $logger,
         CorePermissions $security,
-        Connection $conn
+        Connection $conn,
     ): Response {
         $logger->info('[LeuchtfeuerTranslations] translateAction start', [
             'objectId'   => $objectId,
@@ -39,34 +38,35 @@ class EmailActionController extends FormController
         $sourceEmail = $model->getEntity($objectId);
 
         if (
-            null === $sourceEmail ||
-            !$security->hasEntityAccess(
+            null === $sourceEmail
+            || !$security->hasEntityAccess(
                 'email:emails:view:own',
                 'email:emails:view:other',
                 $sourceEmail->getCreatedBy()
             )
         ) {
             $logger->warning('[LeuchtfeuerTranslations] email not found or access denied', ['objectId' => $objectId]);
+
             return new JsonResponse(['success' => false, 'message' => 'Email not found or access denied.'], Response::HTTP_NOT_FOUND);
         }
 
         // DeepL wants UPPER; Mautic Email.language wants lower
         $targetLangApi = strtoupper((string) $request->get('targetLang', ''));
-        if ($targetLangApi === '') {
+        if ('' === $targetLangApi) {
             return new JsonResponse(['success' => false, 'message' => 'Target language not provided.'], Response::HTTP_BAD_REQUEST);
         }
         $targetLangIso = strtolower($targetLangApi);
 
         $sourceLangGuess = strtolower($sourceEmail->getLanguage() ?: '');
         $emailName       = $sourceEmail->getName() ?: '';
-        $isCodeMode      = $sourceEmail->getTemplate() === 'mautic_code_mode';
+        $isCodeMode      = 'mautic_code_mode' === $sourceEmail->getTemplate();
 
         // 1) Quick probe (do not leak probe details to client)
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
         if (!($probe['success'] ?? false)) {
             $logger->error('[LeuchtfeuerTranslations] DeepL probe failed', [
-                'error'  => $probe['error']  ?? 'unknown',
-                'host'   => $probe['host']   ?? null,
+                'error'  => $probe['error'] ?? 'unknown',
+                'host'   => $probe['host'] ?? null,
                 'status' => $probe['status'] ?? null,
             ]);
 
@@ -111,7 +111,7 @@ class EmailActionController extends FormController
 
             // Ensure HTML is not null (prevents PlainTextHelper error on /view)
             $sourceHtml = $sourceEmail->getCustomHtml();
-            if ($sourceHtml === null) {
+            if (null === $sourceHtml) {
                 $sourceHtml = '<!doctype html><html><body></body></html>';
             }
             $clone->setCustomHtml($sourceHtml);
@@ -120,6 +120,7 @@ class EmailActionController extends FormController
             $model->saveEntity($clone);
         } catch (\Throwable $e) {
             $logger->error('[LeuchtfeuerTranslations] Clone (entity __clone) failed', ['ex' => $e->getMessage()]);
+
             return new JsonResponse([
                 'success' => false,
                 'message' => 'Failed to clone email: '.$e->getMessage(),
@@ -130,10 +131,10 @@ class EmailActionController extends FormController
 
         // 4) If we had MJML, write it to the clone first…
         $wroteMjml = false;
-        if ($mjml !== '') {
+        if ('' !== $mjml) {
             try {
                 $affected = $conn->update('bundle_grapesjsbuilder', ['custom_mjml' => $mjml], ['email_id' => $cloneId]);
-                if ($affected === 0) {
+                if (0 === $affected) {
                     $conn->insert('bundle_grapesjsbuilder', ['email_id' => $cloneId, 'custom_mjml' => $mjml]);
                 }
                 $wroteMjml = true;
@@ -151,7 +152,7 @@ class EmailActionController extends FormController
         try {
             // Subject
             $origSubject = (string) $clone->getSubject();
-            if ($origSubject !== '') {
+            if ('' !== $origSubject) {
                 $translatedSubject = $mjmlService->translateRichText($origSubject, $targetLangApi, $samples);
                 if ($translatedSubject !== $origSubject) {
                     $clone->setSubject($translatedSubject);
@@ -159,13 +160,13 @@ class EmailActionController extends FormController
             }
 
             // MJML
-            if ($mjml !== '') {
-                $mj = $mjmlService->translateMjml($mjml, $targetLangApi);
+            if ('' !== $mjml) {
+                $mj             = $mjmlService->translateMjml($mjml, $targetLangApi);
                 $translatedMjml = $mj['mjml'] ?? $mjml;
 
                 // Persist translated MJML to clone
                 $affected = $conn->update('bundle_grapesjsbuilder', ['custom_mjml' => $translatedMjml], ['email_id' => $cloneId]);
-                if ($affected === 0) {
+                if (0 === $affected) {
                     $conn->insert('bundle_grapesjsbuilder', ['email_id' => $cloneId, 'custom_mjml' => $translatedMjml]);
                 }
 
@@ -215,8 +216,8 @@ class EmailActionController extends FormController
                 ],
             ],
             'translation' => [
-                'subjectChanged' => ($translatedSubject !== null),
-                'mjmlChanged'    => ($translatedMjml !== null),
+                'subjectChanged' => (null !== $translatedSubject),
+                'mjmlChanged'    => (null !== $translatedMjml),
                 'samples'        => array_slice($samples, 0, 4),
                 'lockedMode'     => $lockedMode,
                 'lockedPairs'    => $lockedPairs,

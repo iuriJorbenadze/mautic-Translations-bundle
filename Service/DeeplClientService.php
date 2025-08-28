@@ -65,7 +65,7 @@ class DeeplClientService
         $keys        = $integration ? $integration->getDecryptedApiKeys() : [];
         $apiKey      = $keys['deepl_api_key'] ?? '';
 
-        if ($apiKey === '') {
+        if ('' === $apiKey) {
             return [
                 'success' => false,
                 'error'   => 'API key not set',
@@ -76,7 +76,7 @@ class DeeplClientService
 
         $guessFree = str_ends_with($apiKey, ':fx');
         $firstHost = $guessFree ? $this->apiUrlFree : $this->apiUrlPro;
-        $altHost   = $guessFree ? $this->apiUrlPro  : $this->apiUrlFree;
+        $altHost   = $guessFree ? $this->apiUrlPro : $this->apiUrlFree;
 
         $this->log('[LeuchtfeuerTranslations][DeepL] plan guess', [
             'guess'     => $guessFree ? 'free' : 'pro',
@@ -96,6 +96,7 @@ class DeeplClientService
         ]);
 
         $second = $this->callDeepL($altHost, $apiKey, $payload);
+
         return $second;
     }
 
@@ -123,7 +124,7 @@ class DeeplClientService
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        if ($response === false) {
+        if (false === $response) {
             $this->log('[LeuchtfeuerTranslations][DeepL] cURL error', [
                 'host'  => $host,
                 'errno' => $errno,
@@ -140,7 +141,7 @@ class DeeplClientService
 
         $json = json_decode($response, true);
 
-        if ($httpCode !== 200) {
+        if (200 !== $httpCode) {
             $msg = is_array($json) && isset($json['message'])
                 ? (string) $json['message']
                 : ('HTTP error '.$httpCode);
@@ -154,7 +155,7 @@ class DeeplClientService
         }
 
         $translation = $json['translations'][0]['text'] ?? null;
-        if ($translation === null) {
+        if (null === $translation) {
             return [
                 'success' => false,
                 'error'   => 'Unexpected API response (no translations[0].text)',

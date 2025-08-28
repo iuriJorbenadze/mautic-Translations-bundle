@@ -8,8 +8,9 @@ class MjmlTranslateService
 {
     public function __construct(
         private DeeplClientService $deepl,
-        private ?LoggerInterface $logger = null
-    ) {}
+        private ?LoggerInterface $logger = null,
+    ) {
+    }
 
     /**
      * Translate MJML in-place, respecting LOCKED markers and <mj-raw>.
@@ -24,7 +25,7 @@ class MjmlTranslateService
         $segments = $this->splitByLockMarkers($mjml);
 
         // If there were no markers at all, keep existing single-pass behavior
-        if ($segments['pairs'] === 0 && !$segments['sawAnyMarker']) {
+        if (0 === $segments['pairs'] && !$segments['sawAnyMarker']) {
             $out     = $this->translateMjmlSegmentCore($mjml, $targetLangApi, $samples);
             $changed = ($out !== $original);
 
@@ -45,7 +46,7 @@ class MjmlTranslateService
         // We *did* see markers (even if unbalanced). Translate only unlocked parts.
         $rebuilt = '';
         foreach ($segments['segments'] as $seg) {
-            if ($seg['type'] === 'marker') {
+            if ('marker' === $seg['type']) {
                 // Keep LOCKED markers exactly as-is
                 $rebuilt .= $seg['text'];
                 continue;
@@ -83,23 +84,25 @@ class MjmlTranslateService
      * Core pass over an unlocked MJML fragment.
      * - exclude <mj-raw>
      * - translate mj-preview, mj-text, mj-button (inner HTML)
-     * - translate title/alt attributes with token-preserving logic
+     * - translate title/alt attributes with token-preserving logic.
      */
     private function translateMjmlSegmentCore(string $frag, string $targetLangApi, array &$samples): string
     {
         // Exclude <mj-raw>…</mj-raw>
         $rawBlocks = [];
-        $frag = $this->extractAndShieldMjRaw($frag, $rawBlocks);
+        $frag      = $this->extractAndShieldMjRaw($frag, $rawBlocks);
 
         // <mj-preview>…</mj-preview>
         $frag = preg_replace_callback('/<mj-preview>(.*?)<\/mj-preview>/si', function ($m) use ($targetLangApi, &$samples) {
             $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
+
             return '<mj-preview>'.$translated.'</mj-preview>';
         }, $frag);
 
         // <mj-text>…</mj-text>
         $frag = preg_replace_callback('/<mj-text\b[^>]*>(.*?)<\/mj-text>/si', function ($m) use ($targetLangApi, &$samples) {
             $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
+
             return str_replace($m[1], $translated, $m[0]);
         }, $frag);
 
@@ -114,6 +117,7 @@ class MjmlTranslateService
             // Translate title="..." (plain text) but preserve tokens/Twig segments
             $attrsTr = preg_replace_callback('/\btitle="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
                 $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
+
                 return 'title="'.htmlspecialchars($t, ENT_QUOTES).'"';
             }, $attrs);
 
@@ -126,6 +130,7 @@ class MjmlTranslateService
             $closing = $m[2] ?: '';
             $attrsTr = preg_replace_callback('/\balt="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
                 $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
+
                 return 'alt="'.htmlspecialchars($t, ENT_QUOTES).'"';
             }, $attrs);
 
@@ -148,12 +153,14 @@ class MjmlTranslateService
         $resp = $this->deepl->translateHtml($html, $targetLangApi);
         if (!($resp['success'] ?? false)) {
             $this->log('[LeuchtfeuerTranslations][MJML] translateInnerHtml failed', ['error' => $resp['error'] ?? 'unknown']);
+
             return $orig;
         }
         $translated = (string) ($resp['translation'] ?? $orig);
         if ($translated !== $orig) {
             $samples[] = ['from' => $this->preview($orig), 'to' => $this->preview($translated)];
         }
+
         return $translated;
     }
 
@@ -166,12 +173,14 @@ class MjmlTranslateService
         $resp = $this->deepl->translate($text, $targetLangApi);
         if (!($resp['success'] ?? false)) {
             $this->log('[LeuchtfeuerTranslations][MJML] translateRichText failed', ['error' => $resp['error'] ?? 'unknown']);
+
             return $orig;
         }
         $translated = (string) ($resp['translation'] ?? $orig);
         if ($translated !== $orig) {
             $samples[] = ['from' => $this->preview($orig), 'to' => $this->preview($translated)];
         }
+
         return $translated;
     }
 
@@ -181,7 +190,7 @@ class MjmlTranslateService
      */
     private function translateAttributePreserveTokens(string $value, string $targetLangApi, array &$samples): string
     {
-        if ($value === '') {
+        if ('' === $value) {
             return $value;
         }
 
@@ -189,7 +198,7 @@ class MjmlTranslateService
         $out   = '';
 
         foreach ($parts as $p) {
-            if ($p['type'] === 'token') {
+            if ('token' === $p['type']) {
                 $out .= $p['value']; // keep as-is
             } else {
                 $resp = $this->deepl->translate($p['value'], $targetLangApi);
@@ -207,25 +216,29 @@ class MjmlTranslateService
     /**
      * Split a string into token vs non-token parts.
      * Tokens: Twig {{..}}, {%..%}, and Mautic-style {...}.
+     *
      * @return array<int,array{type:'token'|'text',value:string}>
      */
     private function splitByTokens(string $s): array
     {
-        $re = '/(\{\{.*?\}\}|\{%.*?%\}|\{[a-z0-9_:.%-]+(?:=[^}]+)?\})/i';
+        $re     = '/(\{\{.*?\}\}|\{%.*?%\}|\{[a-z0-9_:.%-]+(?:=[^}]+)?\})/i';
         $chunks = preg_split($re, $s, -1, PREG_SPLIT_DELIM_CAPTURE);
-        if ($chunks === false) {
+        if (false === $chunks) {
             return [['type' => 'text', 'value' => $s]];
         }
 
         $parts = [];
         foreach ($chunks as $c) {
-            if ($c === '') continue;
+            if ('' === $c) {
+                continue;
+            }
             if (preg_match($re, $c)) {
                 $parts[] = ['type' => 'token', 'value' => $c];
             } else {
                 $parts[] = ['type' => 'text', 'value' => $c];
             }
         }
+
         return $parts;
     }
 
@@ -236,7 +249,7 @@ class MjmlTranslateService
     {
         $pattern = '/(<!--\s*LOCKED_START\s*-->|<!--\s*LOCKED_END\s*-->)/i';
         $parts   = preg_split($pattern, $s, -1, PREG_SPLIT_DELIM_CAPTURE);
-        if ($parts === false) {
+        if (false === $parts) {
             // On regex failure, treat as no markers
             return [
                 'pairs'        => 0,
@@ -252,7 +265,9 @@ class MjmlTranslateService
         $sawMarker = false;
 
         foreach ($parts as $chunk) {
-            if ($chunk === '') continue;
+            if ('' === $chunk) {
+                continue;
+            }
 
             if (preg_match('/^<!--\s*LOCKED_START\s*-->$/i', $chunk)) {
                 $sawMarker  = true;
@@ -263,7 +278,9 @@ class MjmlTranslateService
             if (preg_match('/^<!--\s*LOCKED_END\s*-->$/i', $chunk)) {
                 $sawMarker  = true;
                 $segments[] = ['type' => 'marker', 'text' => $chunk];
-                if ($locked) { $pairs++; }
+                if ($locked) {
+                    ++$pairs;
+                }
                 $locked = false;
                 continue;
             }
@@ -285,23 +302,28 @@ class MjmlTranslateService
     private function extractAndShieldMjRaw(string $mjml, array &$blocks): string
     {
         return preg_replace_callback('/<mj-raw>(.*?)<\/mj-raw>/si', function ($m) use (&$blocks) {
-            $key          = '__MJRAW_' . count($blocks) . '__';
+            $key          = '__MJRAW_'.count($blocks).'__';
             $blocks[$key] = $m[0]; // entire block
+
             return $key;
         }, $mjml);
     }
 
     private function unshieldMjRaw(string $mjml, array $blocks): string
     {
-        if (!$blocks) return $mjml;
-        uksort($blocks, fn($a, $b) => strlen($b) <=> strlen($a));
+        if (!$blocks) {
+            return $mjml;
+        }
+        uksort($blocks, fn ($a, $b) => strlen($b) <=> strlen($a));
+
         return strtr($mjml, $blocks);
     }
 
     private function preview(string $s, int $len = 80): string
     {
         $s = preg_replace('/\s+/', ' ', trim($s));
-        return (mb_strlen($s) > $len) ? (mb_substr($s, 0, $len) . '…') : $s;
+
+        return (mb_strlen($s) > $len) ? (mb_substr($s, 0, $len).'…') : $s;
     }
 
     private function log(string $msg, array $ctx = []): void

@@ -1,4 +1,5 @@
 <?php
+
 namespace MauticPlugin\LeuchtfeuerTranslationsBundle\EventListener;
 
 use Mautic\CoreBundle\CoreEvents;
@@ -11,8 +12,9 @@ class ButtonSubscriber implements EventSubscriberInterface
 {
     public function __construct(
         private RouterInterface $router,
-        private LoggerInterface $logger
-    ) {}
+        private LoggerInterface $logger,
+    ) {
+    }
 
     public static function getSubscribedEvents(): array
     {
@@ -26,7 +28,7 @@ class ButtonSubscriber implements EventSubscriberInterface
         $loc = (string) $event->getLocation();
 
         // Only the Options dropdown on the email detail page
-        if ($loc !== 'page_actions') {
+        if ('page_actions' !== $loc) {
             return;
         }
 
@@ -227,7 +229,7 @@ class ButtonSubscriber implements EventSubscriberInterface
 
   return false;
 })(event);
-JS
+JS,
             ],
             'btnText'   => 'Clone & Translate',
             'iconClass' => 'ri-global-line',
