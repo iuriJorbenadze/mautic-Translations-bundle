@@ -6,6 +6,7 @@ use Doctrine\DBAL\Connection;
 use Mautic\CoreBundle\Controller\FormController;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\EmailBundle\Entity\Email;
+use Mautic\EmailBundle\Model\EmailModel;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\DeeplClientService;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\MjmlCompileService;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\MjmlTranslateService;
@@ -31,8 +32,8 @@ class EmailActionController extends FormController
             'targetLang' => $request->get('targetLang'),
         ]);
 
-        /** @var \Mautic\EmailBundle\Model\EmailModel $model */
-        $model = $this->getModel('email');
+        /** @var EmailModel $model */
+        $model = $this->getModel(EmailModel::class);
 
         /** @var Email|null $sourceEmail */
         $sourceEmail = $model->getEntity($objectId);
@@ -50,11 +51,25 @@ class EmailActionController extends FormController
             return new JsonResponse(['success' => false, 'message' => 'Email not found or access denied.'], Response::HTTP_NOT_FOUND);
         }
 
-        // DeepL wants UPPER; Mautic Email.language wants lower
-        $targetLangApi = strtoupper((string) $request->get('targetLang', ''));
-        if ('' === $targetLangApi) {
-            return new JsonResponse(['success' => false, 'message' => 'Target language not provided.'], Response::HTTP_BAD_REQUEST);
+        /**
+         * Read input consistently based on HTTP verb (POST preferred).
+         * Check requirements BEFORE any processing to avoid unnecessary work.
+         */
+        $targetLangRaw = $request->isMethod('POST')
+            ? $request->request->get('targetLang')
+            : $request->query->get('targetLang');
+
+        $targetLangRaw = is_string($targetLangRaw) ? trim($targetLangRaw) : '';
+
+        if ($targetLangRaw === '') {
+            return new JsonResponse(
+                ['success' => false, 'message' => 'Target language not provided.'],
+                Response::HTTP_BAD_REQUEST
+            );
         }
+
+        // Normalize for DeepL (UPPER) and Mautic (lower)
+        $targetLangApi = strtoupper($targetLangRaw);
         $targetLangIso = strtolower($targetLangApi);
 
         $sourceLangGuess = strtolower($sourceEmail->getLanguage() ?: '');
@@ -63,7 +78,7 @@ class EmailActionController extends FormController
 
         // 1) Quick probe (do not leak probe details to client)
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
-        if (!($probe['success'] ?? false)) {
+        if (($probe['success'] ?? null) !== true) { // strict check to avoid falsy pitfalls
             $logger->error('[LeuchtfeuerTranslations] DeepL probe failed', [
                 'error'  => $probe['error'] ?? 'unknown',
                 'host'   => $probe['host'] ?? null,
@@ -75,6 +90,8 @@ class EmailActionController extends FormController
                 'message' => 'DeepL probe failed. Check API key/plan and network.',
             ], Response::HTTP_BAD_REQUEST);
         }
+
+
 
         // 2) Read MJML from builder table
         $mjml = '';
