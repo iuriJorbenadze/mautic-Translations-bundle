@@ -8,13 +8,16 @@ class MjmlTranslateService
 {
     public function __construct(
         private DeeplClientService $deepl,
-        private ?LoggerInterface $logger = null,
+        private LoggerInterface $logger, // logger is always available
     ) {
     }
 
     /**
      * Translate MJML in-place, respecting LOCKED markers and <mj-raw>.
      * Uses DeepL HTML mode for inner HTML (no placeholder shielding).
+     *
+     * @todo Consider refactoring parsing to DOM/SimpleXML as suggested in review,
+     *       instead of regex-based handling.
      */
     public function translateMjml(string $mjml, string $targetLangApi): array
     {
@@ -328,10 +331,6 @@ class MjmlTranslateService
 
     private function log(string $msg, array $ctx = []): void
     {
-        if ($this->logger) {
-            $this->logger->info($msg, $ctx);
-        } else {
-            @error_log($msg.' '.json_encode($ctx));
-        }
+        $this->logger->info($msg, $ctx);
     }
 }
