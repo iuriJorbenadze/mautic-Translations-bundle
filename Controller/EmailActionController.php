@@ -17,6 +17,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 class EmailActionController extends FormController
 {
@@ -29,6 +30,7 @@ class EmailActionController extends FormController
         LoggerInterface $logger,
         CorePermissions $security,
         Connection $conn,
+        TranslatorInterface $translator,
     ): Response {
         $logger->info('[LeuchtfeuerTranslations] translateAction start', [
             'objectId'   => $objectId,
@@ -51,7 +53,13 @@ class EmailActionController extends FormController
         ) {
             $logger->warning('[LeuchtfeuerTranslations] email not found or access denied', ['objectId' => $objectId]);
 
-            return new JsonResponse(['success' => false, 'message' => 'Email not found or access denied.'], Response::HTTP_NOT_FOUND);
+            return new JsonResponse(
+                [
+                    'success' => false,
+                    'message' => $translator->trans('plugin.leuchtfeuertranslations.error.email_not_found_or_access_denied'),
+                ],
+                Response::HTTP_NOT_FOUND
+            );
         }
 
         /**
@@ -66,7 +74,10 @@ class EmailActionController extends FormController
 
         if ($targetLangRaw === '') {
             return new JsonResponse(
-                ['success' => false, 'message' => 'Target language not provided.'],
+                [
+                    'success' => false,
+                    'message' => $translator->trans('plugin.leuchtfeuertranslations.error.target_language_missing'),
+                ],
                 Response::HTTP_BAD_REQUEST
             );
         }
@@ -81,16 +92,16 @@ class EmailActionController extends FormController
 
         // 1) Quick probe (do not leak probe details to client)
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
-        if (($probe['success'] ?? null) !== true) { // strict check to avoid falsy pitfalls
+        if ($probe['success'] !== true) {
             $logger->error('[LeuchtfeuerTranslations] DeepL probe failed', [
-                'error'  => $probe['error'] ?? 'unknown',
-                'host'   => $probe['host'] ?? null,
-                'status' => $probe['status'] ?? null,
+                'error'  => $probe['error'],
+                'host'   => $probe['host'],
+                'status' => $probe['status'],
             ]);
 
             return new JsonResponse([
                 'success' => false,
-                'message' => 'DeepL probe failed. Check API key/plan and network.',
+                'message' => $translator->trans('plugin.leuchtfeuertranslations.error.deepl_probe_failed'),
             ], Response::HTTP_BAD_REQUEST);
         }
 
@@ -98,7 +109,7 @@ class EmailActionController extends FormController
         /** @var GrapesJsBuilderModel $grapesModel */
         $grapesModel = $this->getModel(GrapesJsBuilderModel::class);
 
-// 2) Read MJML using GrapesJsBuilderModel (avoid raw SQL / missing table prefix)
+        // 2) Read MJML using GrapesJsBuilderModel (avoid raw SQL / missing table prefix)
         $mjml = '';
         try {
             $grapes = $grapesModel->getGrapesJsFromEmailId((int) $sourceEmail->getId());
@@ -145,7 +156,7 @@ class EmailActionController extends FormController
 
                 return new JsonResponse([
                     'success' => false,
-                    'message' => 'Failed to persist cloned email (no ID assigned).',
+                    'message' => $translator->trans('plugin.leuchtfeuertranslations.error.clone_persist_failed'),
                 ], Response::HTTP_INTERNAL_SERVER_ERROR);
             }
             $cloneId = (int) $cloneId;
@@ -154,12 +165,11 @@ class EmailActionController extends FormController
 
             return new JsonResponse([
                 'success' => false,
-                'message' => 'Failed to clone email: ' . $e->getMessage(),
+                'message' => $translator->trans('plugin.leuchtfeuertranslations.error.clone_failed', ['%error%' => $e->getMessage()]),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-
-// 4) If we had MJML, write it to the clone via entity/repository (no raw SQL)
+        // 4) If we had MJML, write it to the clone via entity/repository (no raw SQL)
         $wroteMjml = false;
         if ($mjml !== '') {
             try {
@@ -183,8 +193,7 @@ class EmailActionController extends FormController
             }
         }
 
-
-// 5) Translate subject + MJML (if present) and set custom_html to compiled HTML
+        // 5) Translate subject + MJML (if present) and set custom_html to compiled HTML
         $translatedSubject = null;
         $translatedMjml    = null;
         $samples           = [];
@@ -200,10 +209,10 @@ class EmailActionController extends FormController
                 }
             }
 
-// MJML
+            // MJML
             if ($mjml !== '') {
                 $mj             = $mjmlService->translateMjml($mjml, $targetLangApi);
-                $translatedMjml = $mj['mjml'] ?? $mjml;
+                $translatedMjml = $mj['mjml'];
 
                 /** @var GrapesJsBuilder|null $cloneGrapes */
                 $cloneGrapes = $grapesModel->getGrapesJsFromEmailId($cloneId);
@@ -243,7 +252,7 @@ class EmailActionController extends FormController
 
         $payload = [
             'success' => true,
-            'message' => 'Done.',
+            'message' => $translator->trans('plugin.leuchtfeuertranslations.done'),
             'source'  => [
                 'emailId'   => $sourceEmail->getId(),
                 'name'      => $emailName,
@@ -272,7 +281,7 @@ class EmailActionController extends FormController
                 'lockedPairs'    => $lockedPairs,
             ],
             // NOTE: removed 'deeplProbe' block from client response to avoid leaking details
-            'note' => 'custom_html is now compiled from the translated MJML so preview reflects the translation immediately.',
+            'note' => $translator->trans('plugin.leuchtfeuertranslations.note_compiled_from_translated_mjml'),
         ];
 
         $logger->info('[LeuchtfeuerTranslations] translateAction finished', [

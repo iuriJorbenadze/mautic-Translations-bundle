@@ -61,20 +61,44 @@ class MjmlCompileService
 
     /**
      * Uses temporary files and the mjml CLI to compile.
+     *
+     * @return array{success: bool, html?: string, error?: string}
      */
     private function compileViaCli(string $cli, string $mjml): array
     {
-        // Use configured Mautic tmp path if available; fallback to system tmp
-        $tmpDir = (string) ($this->parametersHelper->get('tmp_path') ?: sys_get_temp_dir());
+        // Use only the configured Mautic tmp path (no fallback to system tmp)
+        $tmpDir = (string) ($this->parametersHelper->get('tmp_path') ?? '');
 
-        $in  = @tempnam($tmpDir, 'mjml_in_') ?: null;
-        $out = @tempnam($tmpDir, 'mjml_out_') ?: null;
-
-        if (!$in || !$out) {
-            return ['success' => false, 'error' => 'Unable to create temp files'];
+        if ($tmpDir === '' || !is_dir($tmpDir) || !is_writable($tmpDir)) {
+            return [
+                'success' => false,
+                'error'   => sprintf('Invalid tmp_path: "%s". Ensure it exists and is writable.', $tmpDir),
+            ];
         }
 
-        file_put_contents($in, $mjml);
+        $in  = tempnam($tmpDir, 'mjml_in_');
+        if ($in === false) {
+            return ['success' => false, 'error' => 'Unable to create input temp file'];
+        }
+
+        $bytes = file_put_contents($in, $mjml);
+        if ($bytes === false) {
+            // try to clean up input file
+            if (is_file($in) && !unlink($in)) {
+                $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $in]);
+            }
+
+            return ['success' => false, 'error' => 'Failed to write MJML to temp file'];
+        }
+
+        $out = tempnam($tmpDir, 'mjml_out_');
+        if ($out === false) {
+            if (is_file($in) && !unlink($in)) {
+                $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $in]);
+            }
+
+            return ['success' => false, 'error' => 'Unable to create output temp file'];
+        }
 
         $process = new Process([$cli, $in, '-o', $out]);
         $process->setTimeout(30);
@@ -82,13 +106,19 @@ class MjmlCompileService
         $process->run();
 
         $ok   = is_file($out) && filesize($out) > 0;
-        $html = $ok ? @file_get_contents($out) : false;
+        $html = $ok ? file_get_contents($out) : false;
 
-        @unlink($in);
-        @unlink($out);
+        // Cleanup temp files without silencing errors; log if deletion fails
+        if (is_file($in) && !unlink($in)) {
+            $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $in]);
+        }
+        if (is_file($out) && !unlink($out)) {
+            $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $out]);
+        }
 
         if (!$ok || $html === false) {
             $err = trim($process->getErrorOutput() ?: $process->getOutput() ?: 'Unknown MJML CLI error');
+
             return ['success' => false, 'error' => $err];
         }
 
@@ -106,22 +136,22 @@ class MjmlCompileService
     {
         $html = $mjml;
 
-        // Strip mjml/mj-head wrappers; keep <mj-preview> text in a meta-ish div
+        // Strip mjml/mj-head wrappers; keep <mj-preview> text in a hidden block
         $html = preg_replace('/<\/?mjml[^>]*>/i', '', $html);
         $html = preg_replace('/<\/?mj-head[^>]*>.*?<\/mj-head>/is', '', $html);
 
-        // mj-preview → hidden preview block
+        // mj-preview -> hidden preview block
         $html = preg_replace('/<mj-preview>(.*?)<\/mj-preview>/is', '<div style="display:none;visibility:hidden;">$1</div>', $html);
 
-        // mj-text → p
+        // mj-text -> p
         $html = preg_replace('/<mj-text\b[^>]*>(.*?)<\/mj-text>/is', '<p>$1</p>', $html);
 
-        // mj-button → <a>
+        // mj-button -> <a>
         $html = preg_replace('/<mj-button\b([^>]*)>(.*?)<\/mj-button>/is', '<p><a$1>$2</a></p>', $html);
-        // fix attributes like mjml-style on <a>
+        // strip mj*-style-like attributes from <a>
         $html = preg_replace('/<a([^>]*)\bmj-?[a-z0-9_-]+="[^"]*"([^>]*)>/i', '<a$1$2>', $html);
 
-        // mj-image → <img>
+        // mj-image -> <img>
         $html = preg_replace('/<mj-image\b([^>]*)\/?>/is', '<img $1 />', $html);
 
         // unwrap sections/columns/body

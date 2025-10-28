@@ -1,9 +1,7 @@
+{# Translations are provided via messages.ini. JS is loaded via the assets pipeline registered in Config/config.php #}
 <form>
-    <label for="deepl_api_key">Deepl API Key</label>
+    <label for="deepl_api_key">{{ 'plugin.leuchtfeuertranslations.deepl_api_key'|trans }}</label>
     <input type="password" id="deepl_api_key" name="deepl_api_key" value="{{ deepl_api_key }}" autocomplete="off" />
-    <button type="button" id="test-deepl-api">Test Deepl API</button>
+    <button type="button" id="test-deepl-api">{{ 'plugin.leuchtfeuertranslations.test_api_button'|trans }}</button>
     <span id="deepl-api-test-result"></span>
 </form>
-
-{# Load the JS file; no inline JS, no HTML inside the JS file #}
-<script src="{{ asset('plugins/LeuchtfeuerTranslationsBundle/Assets/js/config.js') }}" defer></script>

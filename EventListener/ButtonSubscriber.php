@@ -7,12 +7,14 @@ use Mautic\CoreBundle\Event\CustomButtonEvent;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Routing\RouterInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ButtonSubscriber implements EventSubscriberInterface
 {
     public function __construct(
         private RouterInterface $router,
         private LoggerInterface $logger,
+        private TranslatorInterface $translator,
     ) {
     }
 
@@ -34,7 +36,6 @@ class ButtonSubscriber implements EventSubscriberInterface
 
         $this->logger->info('[LeuchtfeuerTranslations] injecting dropdown item', ['location' => $loc]);
 
-// EventListener/ButtonSubscriber.php (only this array changed)
         $dropdownItem = [
             'attr'      => [
                 'id'         => 'ai-translate-dropdown',
@@ -42,11 +43,11 @@ class ButtonSubscriber implements EventSubscriberInterface
                 'class'      => ' -tertiary -nospin',
                 'href'       => '#',     // inert; prevents accidental GETs
                 'role'       => 'button',
-                'aria-label' => 'AI Translate',
-                // ✅ no inline JS — just a marker
+                'aria-label' => $this->translator->trans('plugin.leuchtfeuertranslations.aria_label_ai_translate'),
+                // No inline JS - just a marker
                 'data-lf-translate' => '1',
             ],
-            'btnText'   => 'Clone & Translate',
+            'btnText'   => $this->translator->trans('plugin.leuchtfeuertranslations.clone_translate_button'),
             'iconClass' => 'ri-global-line',
             'primary'   => false, // force dropdown only
             'priority'  => 0.5,   // ordering within dropdown
@@ -60,5 +61,4 @@ class ButtonSubscriber implements EventSubscriberInterface
 
         $this->logger->info('[LeuchtfeuerTranslations] dropdown item added', ['location' => $loc]);
     }
-
 }

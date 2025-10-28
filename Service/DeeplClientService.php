@@ -112,7 +112,7 @@ class DeeplClientService
         $this->log('[LeuchtfeuerTranslations][DeepL] 403 on first host, trying fallback', [
             'firstHost' => $firstHost,
             'altHost'   => $altHost,
-            'status'    => $first['status'] ?? null,
+            'status'    => $first['status'],
         ]);
 
         return $this->callDeepL($altHost, $apiKey, $payload);
@@ -159,10 +159,17 @@ class DeeplClientService
             ];
         }
 
-        $json = json_decode($body, true);
+        // Decode JSON with exceptions and validate structure
+        $json = null;
+        try {
+            $json = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            // If non-200 and body is not valid JSON, we still want to surface HTTP error below.
+            $json = null;
+        }
 
         if ($httpCode !== 200) {
-            $msg = is_array($json) && isset($json['message'])
+            $msg = (is_array($json) && isset($json['message']))
                 ? (string) $json['message']
                 : ('HTTP error '.$httpCode);
 
@@ -174,15 +181,16 @@ class DeeplClientService
             ];
         }
 
-        $translation = $json['translations'][0]['text'] ?? null;
-        if ($translation === null) {
+        if (!is_array($json) || !isset($json['translations']) || !is_array($json['translations']) || !isset($json['translations'][0]['text'])) {
             return [
                 'success' => false,
-                'error'   => 'Unexpected API response (no translations[0].text)',
+                'error'   => 'Unexpected API response (missing translations[0].text)',
                 'host'    => $host,
                 'status'  => $httpCode,
             ];
         }
+
+        $translation = (string) $json['translations'][0]['text'];
 
         return [
             'success'     => true,
