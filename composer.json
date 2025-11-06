@@ -1,0 +1,38 @@
+{
+  "name": "leuchtfeuer/mautic-translations-bundle",
+  "description": "AI-based translation of Mautic content e.g. emails",
+  "type": "mautic-plugin",
+  "license": "GPL-3.0",
+  "authors": [
+    {
+      "name": "Leuchtfeuer Digital Marketing GmbH",
+      "email": "mautic-plugins@Leuchtfeuer.com"
+    }
+  ],
+  "homepage": "https://www.leuchtfeuer.com",
+
+  "require": {
+    "php": "^8.1",
+    "ext-json": "*",
+    "mautic/core-lib": "^5.0",
+    "mautic/grapes-js-builder-bundle": "^5.0"
+  },
+
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.14",
+    "phpstan/phpstan": "^2.0"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+
+
+  "extra": {
+    "install-directory-name": "LeuchtfeuerTranslationsBundle"
+  },
+
+  "autoload": {
+    "psr-4": {
+      "MauticPlugin\\LeuchtfeuerTranslationsBundle\\": ""
+    }
+  }
+}
