@@ -30,5 +30,4 @@ return [
             'plugins/LeuchtfeuerTranslationsBundle/Assets/js/ai-translate.js',
         ],
     ],
-
 ];
