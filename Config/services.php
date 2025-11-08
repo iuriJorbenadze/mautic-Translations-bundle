@@ -14,7 +14,7 @@ return function (ContainerConfigurator $configurator): void {
 
     // Autoload everything under the bundle (except Mautic's default excludes)
     $services->load('MauticPlugin\\LeuchtfeuerTranslationsBundle\\', '../')
-        ->exclude('../{' . implode(',', MauticCoreExtension::DEFAULT_EXCLUDES) . '}');
+        ->exclude('../{'.implode(',', MauticCoreExtension::DEFAULT_EXCLUDES).'}');
 
     // --- Integration registration (legacy plugins list/config) ---
     // Private class service + public alias for the legacy ID.
