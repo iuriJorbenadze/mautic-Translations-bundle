@@ -69,20 +69,20 @@ class MjmlCompileService
         // Use only the configured Mautic tmp path (no fallback to system tmp)
         $tmpDir = (string) ($this->parametersHelper->get('tmp_path') ?? '');
 
-        if ($tmpDir === '' || !is_dir($tmpDir) || !is_writable($tmpDir)) {
+        if ('' === $tmpDir || !is_dir($tmpDir) || !is_writable($tmpDir)) {
             return [
                 'success' => false,
                 'error'   => sprintf('Invalid tmp_path: "%s". Ensure it exists and is writable.', $tmpDir),
             ];
         }
 
-        $in  = tempnam($tmpDir, 'mjml_in_');
-        if ($in === false) {
+        $in = tempnam($tmpDir, 'mjml_in_');
+        if (false === $in) {
             return ['success' => false, 'error' => 'Unable to create input temp file'];
         }
 
         $bytes = file_put_contents($in, $mjml);
-        if ($bytes === false) {
+        if (false === $bytes) {
             // try to clean up input file
             if (is_file($in) && !unlink($in)) {
                 $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $in]);
@@ -92,7 +92,7 @@ class MjmlCompileService
         }
 
         $out = tempnam($tmpDir, 'mjml_out_');
-        if ($out === false) {
+        if (false === $out) {
             if (is_file($in) && !unlink($in)) {
                 $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $in]);
             }
@@ -116,7 +116,7 @@ class MjmlCompileService
             $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $out]);
         }
 
-        if (!$ok || $html === false) {
+        if (!$ok || false === $html) {
             $err = trim($process->getErrorOutput() ?: $process->getOutput() ?: 'Unknown MJML CLI error');
 
             return ['success' => false, 'error' => $err];
