@@ -14,15 +14,12 @@ class FeatureGateService
     public function isEnabled(): bool
     {
         $integration = $this->integrationHelper->getIntegrationObject(LeuchtfeuerTranslationsIntegration::NAME);
+
+        // If the integration itself is missing, it's disabled; otherwise defer to its settings.
         if (!$integration) {
             return false;
         }
 
-        $settings = $integration->getIntegrationSettings();
-        if (!$settings) {
-            return false;
-        }
-
-        return method_exists($settings, 'isPublished') ? (bool) $settings->isPublished() : false;
+        return $integration->getIntegrationSettings()->isPublished();
     }
 }
