@@ -7,7 +7,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use Mautic\PluginBundle\Helper\IntegrationHelper;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Integration\LeuchtfeuerTranslationsIntegration;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\HttpFoundation\Response; // ← added
+use Symfony\Component\HttpFoundation\Response;
 
 class DeeplClientService
 {
@@ -18,7 +18,7 @@ class DeeplClientService
     public function __construct(
         private IntegrationHelper $integrationHelper,
         private LoggerInterface $logger,   // logger is always available
-        private Client $http               // use Guzzle instead of cURL
+        private Client $http,              // use Guzzle instead of cURL
     ) {
     }
 
@@ -86,7 +86,7 @@ class DeeplClientService
         $keys        = $integration ? $integration->getDecryptedApiKeys() : [];
         $apiKey      = $keys['deepl_api_key'] ?? '';
 
-        if ($apiKey === '') {
+        if ('' === $apiKey) {
             return [
                 'success' => false,
                 'error'   => 'API key not set',
@@ -106,7 +106,7 @@ class DeeplClientService
         ]);
 
         $first = $this->callDeepL($firstHost, $apiKey, $payload);
-        if (($first['status'] ?? null) !== 403) {
+        if (403 !== ($first['status'] ?? null)) {
             return $first;
         }
 
@@ -169,7 +169,7 @@ class DeeplClientService
             $json = null;
         }
 
-        if ($httpCode !== Response::HTTP_OK) {
+        if (Response::HTTP_OK !== $httpCode) {
             $msg = (is_array($json) && isset($json['message']))
                 ? (string) $json['message']
                 : ('HTTP error '.$httpCode);
