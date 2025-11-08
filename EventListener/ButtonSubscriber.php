@@ -7,13 +7,11 @@ use Mautic\CoreBundle\Event\CustomButtonEvent;
 use MauticPlugin\LeuchtfeuerTranslationsBundle\Service\FeatureGateService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\Routing\RouterInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ButtonSubscriber implements EventSubscriberInterface
 {
     public function __construct(
-        private RouterInterface $router,
         private LoggerInterface $logger,
         private TranslatorInterface $translator,
         private FeatureGateService $featureGate,
@@ -46,14 +44,14 @@ class ButtonSubscriber implements EventSubscriberInterface
 
         $dropdownItem = [
             'attr'      => [
-                'id'         => 'ai-translate-dropdown',
+                'id'                 => 'ai-translate-dropdown',
                 // Dropdown entries are links; no "btn ..." classes
-                'class'      => ' -tertiary -nospin',
-                'href'       => '#',     // inert; prevents accidental GETs
-                'role'       => 'button',
-                'aria-label' => $this->translator->trans('plugin.leuchtfeuertranslations.aria_label_ai_translate'),
+                'class'              => ' -tertiary -nospin',
+                'href'               => '#',
+                'role'               => 'button',
+                'aria-label'         => $this->translator->trans('plugin.leuchtfeuertranslations.aria_label_ai_translate'),
                 // No inline JS - just a marker
-                'data-lf-translate' => '1',
+                'data-lf-translate'  => '1',
             ],
             'btnText'   => $this->translator->trans('plugin.leuchtfeuertranslations.clone_translate_button'),
             'iconClass' => 'ri-global-line',
