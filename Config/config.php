@@ -25,8 +25,9 @@ return [
 
     'assets' => [
         'js' => [
-            'plugins/LeuchtfeuerTranslationsBundle/Assets/js/ai-translate.js',
+            // Config FIRST (provides DEEPL_LANGS + I18N), then the main script.
             'plugins/LeuchtfeuerTranslationsBundle/Assets/js/config.js',
+            'plugins/LeuchtfeuerTranslationsBundle/Assets/js/ai-translate.js',
         ],
     ],
 
