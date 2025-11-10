@@ -56,7 +56,7 @@ class MjmlCompileService
         $finder = new ExecutableFinder();
         $found  = $finder->find('mjml');
 
-        return $found ?: null;
+        return is_string($found) ? $found : null;
     }
 
     /**
@@ -117,7 +117,7 @@ class MjmlCompileService
             $this->log('[LeuchtfeuerTranslations][MJML] Failed to delete temp file', ['file' => $out]);
         }
 
-        if (false === $ok || null === $html) {
+        if (false === $ok || false === $html) {
             $errOut = $process->getErrorOutput();
             $stdOut = $process->getOutput();
             $chosen = '' !== $errOut ? $errOut : ('' !== $stdOut ? $stdOut : 'Unknown MJML CLI error');
@@ -126,7 +126,7 @@ class MjmlCompileService
             return ['success' => false, 'error' => $err];
         }
 
-        return ['success' => true, 'html' => $html];
+        return ['success' => true, 'html' => (string) $html];
     }
 
     /**
