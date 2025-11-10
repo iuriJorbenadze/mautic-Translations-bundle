@@ -45,7 +45,6 @@ class ButtonSubscriber implements EventSubscriberInterface
         $dropdownItem = [
             'attr'      => [
                 'id'                 => 'ai-translate-dropdown',
-                // Dropdown entries are links; no "btn ..." classes
                 'class'              => ' -tertiary -nospin',
                 'href'               => '#',
                 'role'               => 'button',
@@ -60,10 +59,12 @@ class ButtonSubscriber implements EventSubscriberInterface
         ];
 
         // Only on /s/emails/view/{id}
-        $routeFilter = ['mautic_email_action', ['objectAction' => 'view']];
-
-        // Pass the explicit location name
-        $event->addButton($dropdownItem, 'page_actions', $routeFilter);
+        $event->addButton(
+            $dropdownItem,
+            'page_actions',
+            'mautic_email_action',
+            ['objectAction' => 'view']
+        );
 
         $this->logger->info('[LeuchtfeuerTranslations] dropdown item added', ['location' => $loc]);
     }
