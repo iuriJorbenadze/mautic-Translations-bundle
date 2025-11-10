@@ -126,7 +126,7 @@ class MjmlCompileService
             return ['success' => false, 'error' => $err];
         }
 
-        return ['success' => true, 'html' => (string) $html];
+        return ['success' => true, 'html' => $html];
     }
 
     /**
