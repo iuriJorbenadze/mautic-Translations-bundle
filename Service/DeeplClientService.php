@@ -27,6 +27,7 @@ class DeeplClientService
      * $params can include DeepL options like formality, etc.
      *
      * @param array<string, string|int|bool|array<int,string>|null> $params
+     *
      * @return array{
      *   success:bool,
      *   translation?:string,
@@ -50,6 +51,7 @@ class DeeplClientService
      * HTML-aware translation (DeepL tag_handling=html).
      *
      * @param array<string, string|int|bool|array<int,string>|null> $params
+     *
      * @return array{
      *   success:bool,
      *   translation?:string,
@@ -75,6 +77,7 @@ class DeeplClientService
      * Detect plan by key and try free/pro host accordingly with 403 fallback.
      *
      * @param array<string, string|int|bool|array<int,string>|null> $payload
+     *
      * @return array{
      *   success:bool,
      *   translation?:string,
@@ -87,7 +90,7 @@ class DeeplClientService
     {
         $integrationObj = $this->integrationHelper->getIntegrationObject(LeuchtfeuerTranslationsIntegration::NAME);
 
-        if ($integrationObj !== false) {
+        if (false !== $integrationObj) {
             /** @var array<string,string> $keys */
             $keys = $integrationObj->getDecryptedApiKeys();
         } else {
@@ -134,6 +137,7 @@ class DeeplClientService
      * $payload is the full DeepL form body (we add auth_key here).
      *
      * @param array<string, string|int|bool|array<int,string>|null> $payload
+     *
      * @return array{
      *   success:bool,
      *   translation?:string,
