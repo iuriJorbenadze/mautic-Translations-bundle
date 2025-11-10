@@ -2,7 +2,7 @@
 
 namespace MauticPlugin\LeuchtfeuerTranslationsBundle\Controller;
 
-use Mautic\CoreBundle\Controller\FormController;
+use Mautic\CoreBundle\Controller\AbstractFormController;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\EmailBundle\Entity\Email;
 use Mautic\EmailBundle\Model\EmailModel;
@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
-class EmailActionController extends FormController
+class EmailActionController extends AbstractFormController
 {
     public function translateAction(
         Request $request,
@@ -99,14 +99,14 @@ class EmailActionController extends FormController
         $targetLangApi = strtoupper($targetLangRaw);
         $targetLangIso = strtolower($targetLangApi);
 
-        $sourceLangGuess = strtolower($sourceEmail->getLanguage() ?: '');
-        $emailName       = $sourceEmail->getName() ?: '';
+        $sourceLangGuess = strtolower((string) $sourceEmail->getLanguage());
+        $emailName       = (string) $sourceEmail->getName();
 
         // 1) Quick probe (do not leak probe details to client)
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
         if (true !== $probe['success']) {
             $logger->error('[LeuchtfeuerTranslations] DeepL probe failed', [
-                'error'  => $probe['error'],
+                'error'  => (isset($probe['error']) ? (string) $probe['error'] : ''),
                 'host'   => $probe['host'],
                 'status' => $probe['status'],
             ]);

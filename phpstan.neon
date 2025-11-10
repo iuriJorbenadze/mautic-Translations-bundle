@@ -1,13 +1,49 @@
 includes:
-        - vendor/phpstan/phpstan-deprecation-rules/rules.neon
-        - vendor/phpstan/phpstan-strict-rules/rules.neon
-        - vendor/phpstan/phpstan-phpunit/extension.neon
-        - vendor/phpstan/phpstan-phpunit/rules.neon
+    - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+    - vendor/phpstan/phpstan-phpunit/rules.neon
 
 parameters:
     level: max
     treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
+
     paths:
         - .
+
     excludePaths:
         - vendor
+
+    ignoreErrors:
+        # Controller references an optional plugin not present in CI.
+        # Limit suppression strictly to that file and those symbols/messages.
+
+        # Unknown class (model) – constant/usage
+        - message: '#^Class MauticPlugin\\GrapesJsBuilderBundle\\Model\\GrapesJsBuilderModel not found\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
+
+        # Unknown class (entity) – instantiation
+        - message: '#^Instantiated class MauticPlugin\\GrapesJsBuilderBundle\\Entity\\GrapesJsBuilder not found\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
+
+        # Calls on unknown model class
+        - message: '#^Call to method (getGrapesJsFromEmailId|getRepository)\(\) on an unknown class MauticPlugin\\GrapesJsBuilderBundle\\Model\\GrapesJsBuilderModel\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
+
+        # Calls on unknown entity class
+        - message: '#^Call to method (setEmail|getCustomMjml|setCustomMjml)\(\) on an unknown class MauticPlugin\\GrapesJsBuilderBundle\\Entity\\GrapesJsBuilder\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
+
+        # PHPDoc mentions of those unknown classes
+        - message: '#^PHPDoc tag @var for variable \$grapesModel contains unknown class MauticPlugin\\GrapesJsBuilderBundle\\Model\\GrapesJsBuilderModel\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
+
+        - message: '#^PHPDoc tag @var for variable \$cloneGrapes contains unknown class MauticPlugin\\GrapesJsBuilderBundle\\Entity\\GrapesJsBuilder\.$#'
+          paths:
+              - %currentWorkingDirectory%/Controller/EmailActionController.php
