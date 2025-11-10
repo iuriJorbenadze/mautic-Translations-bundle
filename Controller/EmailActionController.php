@@ -99,8 +99,11 @@ class EmailActionController extends AbstractFormController
         $targetLangApi = strtoupper($targetLangRaw);
         $targetLangIso = strtolower($targetLangApi);
 
-        $sourceLangGuess = strtolower((string) $sourceEmail->getLanguage());
-        $emailName       = (string) $sourceEmail->getName();
+        // Avoid casting mixed -> string
+        $langVal          = $sourceEmail->getLanguage();
+        $sourceLangGuess  = is_string($langVal) ? strtolower($langVal) : '';
+        $nameVal          = $sourceEmail->getName();
+        $emailName        = is_string($nameVal) ? $nameVal : '';
 
         // 1) Quick probe (do not leak probe details to client)
         $probe = $deepl->translate('Hello from Mautic', $targetLangApi);
@@ -149,7 +152,7 @@ class EmailActionController extends AbstractFormController
             $clone->setName(('' !== $emailName ? $emailName : 'Email').' ['.$targetLangApi.']');
 
             // IMPORTANT: Mautic expects lowercase language code
-            $clone->setLanguage($targetLangIso ?: $sourceLangGuess);
+            $clone->setLanguage(('' !== $targetLangIso) ? $targetLangIso : $sourceLangGuess);
 
             // Ensure HTML is not null (prevents PlainTextHelper error on /view)
             $sourceHtml = $sourceEmail->getCustomHtml();
@@ -212,8 +215,9 @@ class EmailActionController extends AbstractFormController
         $mj                = []; // ensure defined
 
         try {
-            // Subject
-            $origSubject = (string) $clone->getSubject();
+            // Subject (avoid casting mixed -> string)
+            $subjectVal  = $clone->getSubject();
+            $origSubject = is_string($subjectVal) ? $subjectVal : '';
             if ('' !== $origSubject) {
                 $translatedSubject = $mjmlService->translateRichText($origSubject, $targetLangApi, $samples);
                 if ($translatedSubject !== $origSubject) {
@@ -238,7 +242,9 @@ class EmailActionController extends AbstractFormController
                 }
 
                 // Compile MJML → HTML and set as custom_html so preview reflects translation immediately
-                $compiled     = $mjmlCompiler->compile($translatedMjml, $clone->getTemplate());
+                $templateVal  = $clone->getTemplate();
+                $templateArg  = is_string($templateVal) ? $templateVal : null;
+                $compiled     = $mjmlCompiler->compile($translatedMjml, $templateArg);
                 $compileOk    = (true === ($compiled['success'] ?? false));
                 $compiledHtml = isset($compiled['html']) && is_string($compiled['html']) ? $compiled['html'] : '';
 
