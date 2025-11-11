@@ -16,6 +16,14 @@ class MjmlTranslateService
      * Translate MJML in-place, respecting LOCKED markers and <mj-raw>.
      * Uses DeepL HTML mode for inner HTML (no placeholder shielding).
      *
+     * @return array{
+     *   changed: bool,
+     *   mjml: string,
+     *   samples: array<int, array{from:string,to:string}>,
+     *   lockedMode: bool,
+     *   lockedPairs: int
+     * }
+     *
      * @todo Consider refactoring parsing to DOM/SimpleXML as suggested in review,
      *       instead of regex-based handling.
      */
@@ -88,6 +96,8 @@ class MjmlTranslateService
      * - exclude <mj-raw>
      * - translate mj-preview, mj-text, mj-button (inner HTML)
      * - translate title/alt attributes with token-preserving logic.
+     *
+     * @param array<int, array{from:string,to:string}> $samples
      */
     private function translateMjmlSegmentCore(string $frag, string $targetLangApi, array &$samples): string
     {
@@ -96,21 +106,23 @@ class MjmlTranslateService
         $frag      = $this->extractAndShieldMjRaw($frag, $rawBlocks);
 
         // <mj-preview>…</mj-preview>
-        $frag = preg_replace_callback('/<mj-preview>(.*?)<\/mj-preview>/si', function ($m) use ($targetLangApi, &$samples) {
+        $tmp = preg_replace_callback('/<mj-preview>(.*?)<\/mj-preview>/si', function ($m) use ($targetLangApi, &$samples) {
             $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
 
             return '<mj-preview>'.$translated.'</mj-preview>';
         }, $frag);
+        $frag = is_string($tmp) ? $tmp : $frag;
 
         // <mj-text>…</mj-text>
-        $frag = preg_replace_callback('/<mj-text\b[^>]*>(.*?)<\/mj-text>/si', function ($m) use ($targetLangApi, &$samples) {
+        $tmp = preg_replace_callback('/<mj-text\b[^>]*>(.*?)<\/mj-text>/si', function ($m) use ($targetLangApi, &$samples) {
             $translated = $this->translateInnerHtml($m[1], $targetLangApi, $samples);
 
             return str_replace($m[1], $translated, $m[0]);
         }, $frag);
+        $frag = is_string($tmp) ? $tmp : $frag;
 
         // <mj-button ...>label</mj-button> + title=""
-        $frag = preg_replace_callback('/<mj-button\b([^>]*)>(.*?)<\/mj-button>/si', function ($m) use ($targetLangApi, &$samples) {
+        $tmp = preg_replace_callback('/<mj-button\b([^>]*)>(.*?)<\/mj-button>/si', function ($m) use ($targetLangApi, &$samples) {
             $attrs   = $m[1];
             $inner   = $m[2];
 
@@ -126,11 +138,12 @@ class MjmlTranslateService
 
             return '<mj-button'.$attrsTr.'>'.$innerTr.'</mj-button>';
         }, $frag);
+        $frag = is_string($tmp) ? $tmp : $frag;
 
         // <mj-image ... alt="..."/>  (preserve self-closing)
-        $frag = preg_replace_callback('/<mj-image\b([^>]*?)(\s*\/?)>/si', function ($m) use ($targetLangApi, &$samples) {
+        $tmp = preg_replace_callback('/<mj-image\b([^>]*?)(\s*\/?)>/si', function ($m) use ($targetLangApi, &$samples) {
             $attrs   = $m[1];
-            $closing = $m[2] ?: '';
+            $closing = isset($m[2]) ? $m[2] : '';
             $attrsTr = preg_replace_callback('/\balt="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
                 $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
 
@@ -139,6 +152,7 @@ class MjmlTranslateService
 
             return '<mj-image'.$attrsTr.$closing.'>';
         }, $frag);
+        $frag = is_string($tmp) ? $tmp : $frag;
 
         // Restore <mj-raw> blocks
         $frag = $this->unshieldMjRaw($frag, $rawBlocks);
@@ -190,6 +204,8 @@ class MjmlTranslateService
     /**
      * Translate attribute values while preserving tokens/Twig exactly.
      * Splits text by token-like segments and only translates the non-token parts.
+     *
+     * @param array<int, array{from:string,to:string}> $samples
      */
     private function translateAttributePreserveTokens(string $value, string $targetLangApi, array &$samples): string
     {
@@ -329,6 +345,9 @@ class MjmlTranslateService
         return (mb_strlen($s) > $len) ? (mb_substr($s, 0, $len).'…') : $s;
     }
 
+    /**
+     * @param array<string, mixed> $ctx
+     */
     private function log(string $msg, array $ctx = []): void
     {
         $this->logger->info($msg, $ctx);
