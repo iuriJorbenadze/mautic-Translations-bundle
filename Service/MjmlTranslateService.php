@@ -143,7 +143,7 @@ class MjmlTranslateService
         // <mj-image ... alt="..."/>  (preserve self-closing)
         $tmp = preg_replace_callback('/<mj-image\b([^>]*?)(\s*\/?)>/si', function ($m) use ($targetLangApi, &$samples) {
             $attrs   = $m[1];
-            $closing = isset($m[2]) ? $m[2] : '';
+            $closing = $m[2]; // always present per regex
             $attrsTr = preg_replace_callback('/\balt="([^"]*)"/i', function ($mm) use ($targetLangApi, &$samples) {
                 $t = $this->translateAttributePreserveTokens($mm[1], $targetLangApi, $samples);
 
@@ -163,6 +163,8 @@ class MjmlTranslateService
     /**
      * DeepL HTML-mode translation for inner HTML chunks.
      * Records a sample if text changed.
+     *
+     * @param array<int, array{from:string,to:string}> $samples
      */
     private function translateInnerHtml(string $html, string $targetLangApi, array &$samples): string
     {
@@ -183,6 +185,8 @@ class MjmlTranslateService
 
     /**
      * Subject / plain text helper (kept for subjects etc., no HTML).
+     *
+     * @param array<int, array{from:string,to:string}> $samples
      */
     public function translateRichText(string $text, string $targetLangApi, array &$samples = []): string
     {
@@ -251,7 +255,7 @@ class MjmlTranslateService
             if ('' === $c) {
                 continue;
             }
-            if (preg_match($re, $c)) {
+            if (1 === preg_match($re, $c)) {
                 $parts[] = ['type' => 'token', 'value' => $c];
             } else {
                 $parts[] = ['type' => 'text', 'value' => $c];
@@ -263,6 +267,13 @@ class MjmlTranslateService
 
     /**
      * LOCKED markers splitter (unchanged).
+     *
+     * @return array{
+     *   pairs:int,
+     *   unbalanced:bool,
+     *   sawAnyMarker:bool,
+     *   segments: array<int, array{type:'marker'|'text', text:string, locked?:bool}>
+     * }
      */
     private function splitByLockMarkers(string $s): array
     {
@@ -288,13 +299,13 @@ class MjmlTranslateService
                 continue;
             }
 
-            if (preg_match('/^<!--\s*LOCKED_START\s*-->$/i', $chunk)) {
+            if (1 === preg_match('/^<!--\s*LOCKED_START\s*-->$/i', $chunk)) {
                 $sawMarker  = true;
                 $segments[] = ['type' => 'marker', 'text' => $chunk];
                 $locked     = true;
                 continue;
             }
-            if (preg_match('/^<!--\s*LOCKED_END\s*-->$/i', $chunk)) {
+            if (1 === preg_match('/^<!--\s*LOCKED_END\s*-->$/i', $chunk)) {
                 $sawMarker  = true;
                 $segments[] = ['type' => 'marker', 'text' => $chunk];
                 if ($locked) {
