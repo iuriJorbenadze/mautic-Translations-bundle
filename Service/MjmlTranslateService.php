@@ -349,7 +349,7 @@ class MjmlTranslateService
      */
     private function unshieldMjRaw(string $mjml, array $blocks): string
     {
-        if (!$blocks) {
+        if (empty($blocks)) {
             return $mjml;
         }
         uksort($blocks, fn ($a, $b) => strlen($b) <=> strlen($a));
@@ -359,7 +359,8 @@ class MjmlTranslateService
 
     private function preview(string $s, int $len = 80): string
     {
-        $s = preg_replace('/\s+/', ' ', trim($s));
+        $tmp = preg_replace('/\s+/', ' ', trim($s));
+        $s   = is_string($tmp) ? $tmp : $s;
 
         return (mb_strlen($s) > $len) ? (mb_substr($s, 0, $len).'…') : $s;
     }
