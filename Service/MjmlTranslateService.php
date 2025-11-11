@@ -349,7 +349,7 @@ class MjmlTranslateService
      */
     private function unshieldMjRaw(string $mjml, array $blocks): string
     {
-        if ($blocks === []) {
+        if ([] === $blocks) {
             return $mjml;
         }
         uksort($blocks, fn ($a, $b) => strlen($b) <=> strlen($a));
