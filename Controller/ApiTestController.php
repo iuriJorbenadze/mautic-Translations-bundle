@@ -20,7 +20,7 @@ class ApiTestController extends AbstractController
         $isSuccess = (true === $result['success']);
 
         if ($isSuccess) {
-            $translation = isset($result['translation']) ? (string) $result['translation'] : '';
+            $translation = $result['translation'] ?? '';
             $message     = sprintf('Success! "Hello" → "%s"', $translation);
         } else {
             $error   = isset($result['error']) ? (string) $result['error'] : 'Unknown error';
