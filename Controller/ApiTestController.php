@@ -17,9 +17,9 @@ class ApiTestController extends AbstractController
     {
         $result = $deepl->translate('Hello', 'DE');
 
-        $isSuccess = isset($result['success']) && true === $result['success'];
+        $isSuccess = (true === $result['success']);
 
-        if (true === $isSuccess) {
+        if ($isSuccess) {
             $translation = isset($result['translation']) ? (string) $result['translation'] : '';
             $message     = sprintf('Success! "Hello" → "%s"', $translation);
         } else {
